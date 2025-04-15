@@ -34,11 +34,15 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
     
     lr            = param.lr
     epochs        = param.epochs
+    activation    = param.activation
     
     pgrsBar       = param.pgrsBar
     directLearn   = param.directLearn
     device        = param.device
-
+    
+    
+    activations = {'relu': nn.ReLU(), 'sigmoid': nn.Sigmoid(), 'tanh': nn.Tanh()}
+                    
     if directLearn:
         train_dataloader, test_dataloader = createDatasets(sigRef, sigRef, divByL, trainTestFrac,\
                                                            batch_size, includeMemory, Ntaps, augment=augment)
@@ -47,9 +51,9 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
             p.requires_grad = False
         
         if includeMemory:
-            DPD_model = MLP([num_feat*Ntaps, N1, N2, 2], activation=nn.ReLU()).to(device)
+            DPD_model = MLP([num_feat*Ntaps, N1, N2, 2], activation = activations[activation] ).to(device)
         else:
-            DPD_model = MLP([2, 32, 32, 2], activation=nn.ReLU()).to(device)
+            DPD_model = MLP([2, 32, 32, 2], activation = activations[activation]).to(device)
         
         
         loss_fn = nn.MSELoss()
@@ -116,9 +120,9 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
         
         # Define neural network (multilayer perceptron - MLP) model
         if includeMemory:
-            DPD_model = MLP([num_feat*Ntaps, N1, N2, 2], activation = nn.ReLU()).to(device)
+            DPD_model = MLP([num_feat*Ntaps, N1, N2, 2], activation = activations[activation]).to(device)
         else:
-            DPD_model = MLP([2, 32, 32, 2], activation = nn.ReLU()).to(device)
+            DPD_model = MLP([2, 32, 32, 2], activation = activations[activation]).to(device)
         
         loss_fn = nn.MSELoss()
         optimizer = th.optim.Adam(DPD_model.parameters(), lr = lr)
