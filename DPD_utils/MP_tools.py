@@ -56,6 +56,14 @@ def calcNMSE(x, y):
     return 10*np.log10(NMSE)
 
 
+def calcPAPR(signal):
+    peak_power = np.max(np.abs(signal)) ** 2
+    average_power = np.mean(np.abs(signal) ** 2)
+    
+    papr = peak_power / average_power
+    
+    return 10 * np.log10(papr)
+
 
 def calcSNR_per_carrier(symbTx, symbRx, Ns):
     rx = np.reshape(symbRx, (-1, Ns))
@@ -231,6 +239,7 @@ def MP_training(u, param, y = None):
     directLearn = param.directLearn
     
     pgrsBar     = param.pgrsBar
+    showMSE     = param.showMSE
     storeCoeff  = param.storeCoeff
     
     u = u[0:N]
@@ -259,7 +268,9 @@ def MP_training(u, param, y = None):
         
         w_hist[i,:] = w.ravel().copy()
         errSq_hist[i] = np.mean(errSq)
-        #print(f"Iter {i+1} - MSE = {10*np.log10(np.nanmean(errSq)):.3f} dB")
+        
+        if showMSE:
+            print(f"Iter {i+1} - MSE = {10*np.log10(np.nanmean(errSq)):.3f} dB")
     
     
     return (w, errSq, w_hist, errSq_hist) if storeCoeff else (w, errSq)
@@ -292,7 +303,7 @@ def coreMP_training(u, y, w, N, M, P, mu, lbd, S, a_kl, alg, directLearn):
             if alg == "NFxRLS":
                 g = (1/lbd) * (S @ psi.reshape(P*M, 1) ) / ( 1 + (1/lbd) * np.conj(psi.reshape(1, P*M)) @ S @ psi.reshape(P*M, 1) )
                 S = (1/lbd) * S - (1/lbd)*g.reshape(P*M, 1) @ np.conj(psi.reshape(1, P*M)) @ S
-                w += g * np.conj(err)
+                w += mu * g * np.conj(err)
     
             elif alg == "NFxLMS":
                 w += mu * np.conj(err) * psi.reshape((P*M, 1))

@@ -7,7 +7,7 @@ Funções para geração de figuras associadas à análise de resultados de DPD
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+from optic.comm.metrics import fastBERcalc, calcEVM
 
 def plotDPD_const(symbTx, symbRx, symbRx_DLA, symbRx_ILA, show = False, savefig = False, file_path = None):
     
@@ -91,3 +91,45 @@ def plotDPD_SNR(SNR_per_carrier, SNR_per_carrier_DPD, Ns, DPD_type, show = False
     
     if not(show):
         plt.close()
+
+
+def calc_per_carrier(symbTx, symbRx, Ni, nFrames, modOrder = 64, modType = "qam", plot = False):
+    
+    tx = np.reshape(symbTx[0:nFrames*Ni], (nFrames, Ni))
+    rx = np.reshape(symbRx[0:nFrames*Ni], (nFrames, Ni))
+    
+    BER_per_carrier = np.zeros(Ni)
+    SNR_per_carrier = np.zeros(Ni)
+    EVM_per_carrier = np.zeros(Ni)
+    
+    for k in range(Ni):
+        BER_per_carrier[k], _, SNR_per_carrier[k] = fastBERcalc(rx[:,k].copy(), tx[:,k].copy(), modOrder, modType)
+        EVM_per_carrier[k] = np.sqrt(calcEVM(rx[:,k], modOrder, modType, tx[:,k])) * 100
+
+    if plot:
+        fig, axs = plt.subplots(1, 3, figsize = (20, 5))
+        
+        axs[0].plot(BER_per_carrier, color = "b")
+        axs[1].plot(SNR_per_carrier, color = "r")
+        axs[2].plot(EVM_per_carrier, color = "g")
+
+        axs[0].set_yscale("log")
+        axs[0].set_xlim(0, Ni)
+        axs[1].set_xlim(0, Ni)
+        axs[2].set_xlim(0, Ni)
+
+        axs[0].set_ylabel("BER")
+        axs[1].set_ylabel("SNR [dB]")
+        axs[2].set_ylabel("EVM$_{RMS}$ [%]")
+        
+        axs[0].set_xlabel("Data carrier")
+        axs[1].set_xlabel("Data carrier")
+        axs[2].set_xlabel("Data carrier")
+        
+        axs[0].grid()
+        axs[1].grid()
+        axs[2].grid()
+        
+        plt.tight_layout()
+    
+    return BER_per_carrier, SNR_per_carrier, EVM_per_carrier

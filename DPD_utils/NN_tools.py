@@ -19,17 +19,19 @@ from optic_private.torchUtils import memoryLessDataSet, MLP, train_model, test_m
 
 def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
     
-    num_feat = param.num_feat
+    #num_feat = param.num_feat
     
-    N1 = param.N1
-    N2 = param.N2
+    #N1 = param.N1
+    #N2 = param.N2
     
+    layers        = param.layers
     divByL        = param.divByL
     trainTestFrac = param.trainTestFrac
     batch_size    = param.batch_size
     shuffle       = param.shuffle
     includeMemory = param.includeMemory
     Ntaps         = param.Ntaps
+    K             = param.K
     augment       = param.augment
     
     lr            = param.lr
@@ -41,17 +43,17 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
     device        = param.device
     
     
-    activations = {'relu': nn.ReLU(), 'sigmoid': nn.Sigmoid(), 'tanh': nn.Tanh()}
+    activations = {'leaky_relu': nn.LeakyReLU(), 'relu': nn.ReLU(), 'sigmoid': nn.Sigmoid(), 'tanh': nn.Tanh()}
                     
     if directLearn:
         train_dataloader, test_dataloader = createDatasets(sigRef, sigRef, divByL, trainTestFrac,\
-                                                           batch_size, includeMemory, Ntaps, augment=augment)
+                                                           batch_size, includeMemory, Ntaps, K, augment=augment)
 
         for p in RoFChannel_model.parameters():
             p.requires_grad = False
         
         if includeMemory:
-            DPD_model = MLP([num_feat*Ntaps, N1, N2, 2], activation = activations[activation] ).to(device)
+            DPD_model = MLP(layers, activation = activations[activation] ).to(device)
         else:
             DPD_model = MLP([2, 32, 32, 2], activation = activations[activation]).to(device)
         
@@ -72,7 +74,7 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
                 chInput = DPD_model(X)                
                 if includeMemory:
                     chInput = th.view_as_complex(chInput)            
-                    chOutput = th.view_as_real(fitFilterNN(chInput, RoFChannel_model, Ntaps, 1, len(chInput), predict=False))
+                    chOutput = th.view_as_real(fitFilterNN(chInput, RoFChannel_model, Ntaps, K, 1, len(chInput), predict=False))
                     loss = loss_fn(chOutput, y)
                 else:
                     chOutput = RoFChannel_model(chInput)            
@@ -98,7 +100,7 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
                     
                     if includeMemory:
                         chInput = th.view_as_complex(chInput)
-                        chOutput = th.view_as_real(fitFilterNN(chInput, RoFChannel_model, Ntaps, 1, len(chInput)))
+                        chOutput = th.view_as_real(fitFilterNN(chInput, RoFChannel_model, Ntaps, K, 1, len(chInput)))
                         test_loss += loss_fn(chOutput, y).item()
                     else:
                         chOutput = RoFChannel_model(chInput)           
@@ -116,11 +118,11 @@ def NN_training(sigIn, sigRef, param, RoFChannel_model = None):
     
     else:
         train_dataloader, test_dataloader = createDatasets(sigRef, sigIn, divByL, trainTestFrac,\
-                                                   batch_size, includeMemory, Ntaps, augment=augment)
+                                                   batch_size, includeMemory, Ntaps, K, augment=augment)
         
         # Define neural network (multilayer perceptron - MLP) model
         if includeMemory:
-            DPD_model = MLP([num_feat*Ntaps, N1, N2, 2], activation = activations[activation]).to(device)
+            DPD_model = MLP(layers, activation = activations[activation]).to(device)
         else:
             DPD_model = MLP([2, 32, 32, 2], activation = activations[activation]).to(device)
         
@@ -154,6 +156,7 @@ def createDatasets(
     batch_size,
     includeMemory,
     Ntaps,
+    K,
     shuffle=False,
     augment=False
 ):
@@ -172,10 +175,10 @@ def createDatasets(
        
     if includeMemory:
         train_dataset = slidingWindowDataSet(
-            sig_ref[indy_train], sig_train, Ntaps, augment=augment
+            sig_ref[indy_train], sig_train, Ntaps, K, augment=augment
         )
         test_dataset = slidingWindowDataSet(
-            sig_ref[indy_test], sig_test, Ntaps, augment=augment
+            sig_ref[indy_test], sig_test, Ntaps, K, augment=augment
         )
 
         # Create a data loader for batching and shuffling the data
@@ -186,8 +189,8 @@ def createDatasets(
             test_dataset, batch_size=batch_size, shuffle=shuffle
         )
     else:
-        train_dataset = memoryLessDataSet(sig_ref[indy_train], sig_train, augment=augment)
-        test_dataset = memoryLessDataSet(sig_ref[indy_test], sig_test, augment=augment)
+        train_dataset = memoryLessDataSet(sig_ref[indy_train], sig_train, K, augment = augment)
+        test_dataset = memoryLessDataSet(sig_ref[indy_test], sig_test, K, augment = augment)
 
         # Create a data loader for batching and shuffling the data
         train_dataloader = DataLoader(
