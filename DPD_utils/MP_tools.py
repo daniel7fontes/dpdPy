@@ -280,12 +280,13 @@ def MP_training(u, param, y = None):
 def coreMP_training(u, y, w, N, M, P, mu, lbd, S, a_kl, alg, directLearn):
     
     errSq = np.zeros(N)
-    K, L = np.shape(a_kl)
     
     # Intermediate arrays
     x = np.zeros(N, dtype = complex)
     
     if directLearn:
+        K, L = np.shape(a_kl)
+        
         for i in range(N):
             u_win = MP_sliding_window(u, i, P, M)
             x[i] = np.dot(u_win, np.conj(w))[0]
