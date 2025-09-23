@@ -1,28 +1,29 @@
 # -*- coding: utf-8 -*-
 """
 ======================================================================
-Function for processing of the experimental data for DPD
+Function to process the experimental data for DPD
 ======================================================================
 """
 
-
 import numpy as np
+import torch as th
 import matplotlib.pyplot as plt
 
 import hdf5storage
 
-from numpy.fft              import fft, fftshift
 from datetime               import datetime
 from scipy.signal           import hilbert, firwin
-from scipy.interpolate      import interp1d
 from scipy.constants        import pi
 
 from optic.comm.modulation  import modulateGray
-from optic.comm.ofdm        import modulateOFDM #, demodulateOFDM
-from optic.dsp.core         import pnorm, finddelay, firFilter, clockSamplingInterp
+from optic.comm.ofdm        import modulateOFDM, demodulateOFDM
+from optic.comm.metrics     import fastBERcalc, calcEVM
+from optic.dsp.core         import pnorm, finddelay, firFilter, clockSamplingInterp, signal_power
 
+from dpd_mp                 import MP_filter
+from torchUtils             import fitFilterNN
 
-def save_OFDM(awg_sig, bitsTx, symbTx, param):
+def save_OFDM(awg_sig, bitsTx, symbTx, paramOFDM, paramDPD = None):
     """
     Save transmitted OFDM signal.
 
@@ -50,20 +51,25 @@ def save_OFDM(awg_sig, bitsTx, symbTx, param):
 
     """
 
-    mode         = getattr(param, "mode", "ARoF")
-    awg_model    = getattr(param, "awg_model", "Tektronix")
-    awg_filepath = getattr(param, "awg_filepath", None)
-    tx_info_path = getattr(param, "tx_info_path", None)
+    mode         = getattr(paramOFDM, "mode", "ARoF")
+    awg_model    = getattr(paramOFDM, "awg_model", "Tektronix")
+    awg_filepath = getattr(paramOFDM, "awg_filepath", None)
+    tx_info_path = getattr(paramOFDM, "tx_info_path", None)
 
-    fc  = getattr(param, "fc", 3e9)
-    bw  = getattr(param, "bw", 100e6)
-    scs = getattr(param, "scs", 480e3)
-    modOrder = getattr(param, "modOrder", 64)
-    Fawg     = getattr(param, "Fawg", 16e9)
+    fc  = getattr(paramOFDM, "fc", 3e9)
+    bw  = getattr(paramOFDM, "bw", 100e6)
+    scs = getattr(paramOFDM, "scs", 480e3)
+    modOrder = getattr(paramOFDM, "modOrder", 64)
+    Fawg     = getattr(paramOFDM, "Fawg", 16e9)
 
     date = datetime.today().strftime('%Y%m%d')
-
-    awg_filename = f"{mode}_signal_{fc/1e9}GHz_{modOrder}QAM_BW{bw/1e6}MHz_SCS{scs/1e6}MHz_{date}"
+    
+    if paramOFDM.DPD_active:
+        DPD_model = paramDPD.model
+        awg_filename = f"{mode}_{DPD_model}_DPD_signal_{fc/1e9}GHz_{modOrder}QAM_BW{bw/1e6}MHz_SCS{scs/1e6}MHz_{date}"
+        
+    else:
+        awg_filename = f"{mode}_signal_{fc/1e9}GHz_{modOrder}QAM_BW{bw/1e6}MHz_SCS{scs/1e6}MHz_{date}"
 
     if awg_model == "Tektronix":
         Waveform_M1_1 = np.zeros(awg_sig.size)
@@ -92,23 +98,22 @@ def save_OFDM(awg_sig, bitsTx, symbTx, param):
     tx_data = {}
     tx_data["yctx_awg"] = awg_sig
     tx_data["data"]     = bitsTx
-    tx_data["nfft"]     = param.Nfft
-    tx_data["cplen"]    = param.G
-    tx_data["nullIdx"]  = param.nullCarriers
-    tx_data["pilotIdx"] = param.pilotCarriers
+    tx_data["nfft"]     = paramOFDM.Nfft
+    tx_data["cplen"]    = paramOFDM.G
+    tx_data["nullIdx"]  = paramOFDM.nullCarriers
+    tx_data["pilotIdx"] = paramOFDM.pilotCarriers
     tx_data["qamSym"]   = symbTx
 
     hdf5storage.savemat(tx_info_path + "\\tx_info_OFDM_" + awg_filename, tx_data, format = '7.3')
     
     
-    
-def tx_OFDM(param):
+def tx_OFDM(paramOFDM, paramDPD = None):
     """
-    Generate OFDM signal.
+    Generate OFDM signal, with or without DPD, for experimental test.
 
     Parameters
     ----------
-    param : optic.utils.parameters object
+    paramOFDM : optic.utils.parameters object
         An object containing the parameters for OFDM modulation.
         - modType : string, optional. Type of the modulation format. Default is "QAM".
 
@@ -117,6 +122,8 @@ def tx_OFDM(param):
         - numOFDMframes : int, optional. Number of OFDM frames of the generated signal. Default is 100.
 
         - Nfft : scalar, optional. Size of the FFT. Default is 512.
+        
+        - Ni : scalar, optional. Number of information subcarriers.
 
         - G : scalar, optional. Cyclic prefix length. Default is 4.
 
@@ -138,44 +145,44 @@ def tx_OFDM(param):
 
         - seed : int, optional. Determines the pattern of the random signal generated. Default is 2.
 
+        - DPD_active : bool, optional. Flag to indicate if the DPD is activated.
+        
+    
+    paramDPD : optic.utils.parameters object
+        An object containing the parameters for DPD model. It's only valid if the DPD is active. 
+
     Returns
     -------
-    sigTx_RF : Real-valued array representing the OFDM signal in time-domain.
-
-    symbTx : Complex-valued array representing the constellation symbols transmitted by the signal.
+    symbTx : Complex-valued array representing the transmitted constellation symbols.
+    
+    sigTx : Complex-valued array representing the basebad OFDM signal.
+    
+    sigTx_RF : Real-valued array representing the RF OFDM signal.
 
     """
-
+    
     # Modulation parameters
-    modOrder       = getattr(param, "modOrder", 64)
-    modType        = getattr(param, "modType", "qam")
+    modOrder       = getattr(paramOFDM, "modOrder", 64)
+    modType        = getattr(paramOFDM, "modType", "qam")
 
-    numOFDMframes  = getattr(param, "numOFDMframes", 100)
-    scs            = getattr(param, "scs", 480e3)
-    Nfft           = getattr(param, "Nfft", 512)
-    G              = getattr(param, "G", 4)
-    hermitSymmetry = getattr(param, "hermitSymmetry", False)
+    numOFDMframes  = getattr(paramOFDM, "numOFDMframes", 100)
+    scs            = getattr(paramOFDM, "scs", 480e3)
+    Nfft           = getattr(paramOFDM, "Nfft", 512)
+    G              = getattr(paramOFDM, "G", 4)
+    Ni             = getattr(paramOFDM, "Ni", 512)
 
-    pilotCarriers  = getattr(param, "pilotCarriers", np.array([], dtype = np.int64))
-    nullCarriers   = getattr(param, "nullCarriers", np.array([], dtype = np.int64))
+    fc             = getattr(paramOFDM, "fc", 3e9)
+    Fawg           = getattr(paramOFDM, "Fawg", 16e9)
+    DPD_active     = getattr(paramOFDM, "DPD_active", False)
+    awg_model      = getattr(paramOFDM, "awg_model", "Tektronix")
+    saveTx         = getattr(paramOFDM, "saveTx", False)
+    seed           = getattr(paramOFDM, "seed", 2)
 
-    fc             = getattr(param, "fc", 3e9)
-    Fawg           = getattr(param, "Fawg", 16e9)
-    awg_model      = getattr(param, "awg_model", "Tektronix")
-    saveTx         = getattr(param, "saveTx", False)
-    seed           = getattr(param, "seed", 2)
-
-    # Number of pilot, nulls and information carriers
-    Np = len(pilotCarriers)
-    Nz = len(nullCarriers)
-
-    Ni = Nfft//2 - 1 - Np - Nz if hermitSymmetry else Nfft - Np - Nz
-
-    Rs  = scs * Nfft     # Symbols rate
-    param.SpS = int(Fawg/Rs)   # Samples per symbol
+    Rs  = scs * Nfft               # Symbols rate
+    SpS = int(Fawg/Rs)   # Samples per symbol
 
     # Check for memory limits
-    samples_per_frame = param.SpS * (Nfft + G)
+    samples_per_frame = SpS * (Nfft + G)
     samples_total     = samples_per_frame * numOFDMframes
 
     if awg_model == "Tektronix":
@@ -188,7 +195,6 @@ def tx_OFDM(param):
         if Fawg > 25e9 and samples_total > 16e9:
             raise ValueError(f"Number of samples ({samples_total}) exceeds the maximum (16_000_000_000).")
 
-
     # Bits generation and constellation symbols mapping
     np.random.seed(seed)
     bitsTx = np.random.randint(2, size = (numOFDMframes*Ni, int(np.log2(modOrder))))
@@ -197,32 +203,53 @@ def tx_OFDM(param):
     symbTx = pnorm(symbTx)
 
     pilotSymb = 0.25*(max(symbTx.real) + 1j*max(symbTx.imag))
-    param.pilot = pilotSymb
-
-    sigTx_BB = pnorm(modulateOFDM(symbTx, param))
-    t        = np.arange(0, sigTx_BB.size)*1/Fawg
-
-    sigTx_RF = np.real(sigTx_BB*np.exp(1j*2*pi*fc*t))
+    paramOFDM.pilot = pilotSymb
+    
+    # OFDM signal generation and RF modulation
+    
+    if DPD_active:
+        SpS_DPD = paramDPD.SpS_DPD
+        
+        paramOFDM.SpS = SpS_DPD
+        sigTx = pnorm(modulateOFDM(symbTx, paramOFDM))
+        paramOFDM.SpS = SpS
+        
+        sigTx = apply_DPD(sigTx, paramDPD)
+        P_DPD = signal_power(sigTx)
+        
+        Fs_DPD = Fawg * SpS_DPD / SpS
+        sigTx = clockSamplingInterp(sigTx.reshape(-1, 1), Fs_DPD, Fawg).ravel()
+        
+        h_dpd = firwin(4096, 2*Rs, fs = Fawg)
+        sigTx = firFilter(h_dpd, sigTx)
+        sigTx = np.sqrt(P_DPD) * pnorm(sigTx)    
+        
+    else:
+        paramOFDM.SpS = SpS    
+        sigTx = pnorm(modulateOFDM(symbTx, paramOFDM))
+    
+    t        = np.arange(0, sigTx.size)*1/Fawg
+    sigTx_RF = np.real(sigTx*np.exp(1j*2*pi*fc*t))
     sigTx_RF = pnorm(sigTx_RF)
 
     if saveTx:
-        save_OFDM(sigTx_RF, bitsTx, symbTx, param)
+        save_OFDM(sigTx_RF, bitsTx, symbTx, paramOFDM, paramDPD)
 
-    return sigTx_RF, sigTx_BB, symbTx
+    return symbTx, sigTx, sigTx_RF
 
     
-
-def rx_OFDM(sigRx, sigTx_BB, param, mmse_eq = False, plot = False):
+def rx_OFDM(sigRx_RF, sigTx, paramOFDM, lpf = False, bw = 75e6, plot = False):
     """
-    Demodulates OFDM signal.
+    Demodulates OFDM signal, for experimental test.
 
     Parameters
     ----------
-    sigRx : complex-valued array. Received RF OFDM signal.
+    
+    sigRx_RF : Complex-valued array representing the received OFDM signal from experimental data.
 
-    sigTx_BB : complex-valued array. Transmitted OFDM signal in baseband.
-
-    param : optic.utils.parameters object
+    sigTx    : Complex-valued array representing the basebad OFDM signal.
+    
+    paramOFDM : optic.utils.parameters object
         An object containing the parameters for OFDM modulation.
         - modType : string, optional. Type of the modulation format. Default is "QAM".
 
@@ -231,6 +258,8 @@ def rx_OFDM(sigRx, sigTx_BB, param, mmse_eq = False, plot = False):
         - numOFDMframes : int, optional. Number of OFDM frames of the generated signal. Default is 100.
 
         - Nfft : scalar, optional. Size of the FFT. Default is 512.
+        
+        - Ni : scalar, optional. Number of information subcarriers.
 
         - G : scalar, optional. Cyclic prefix length. Default is 4.
 
@@ -242,8 +271,6 @@ def rx_OFDM(sigRx, sigTx_BB, param, mmse_eq = False, plot = False):
 
         - nullCarriers : np.array, optional. Indexes of null subcarriers. Default is an empty array.
 
-        - SpS : int, optional. Oversampling factor. Default is 2.
-
         - fc : float, optional. Electrical carrier frequency. Default is 3e9 Hz.
 
         - Fawg : float, optional. Sampling frequency of the AWG. Default is 16e9 Hz.
@@ -254,315 +281,290 @@ def rx_OFDM(sigRx, sigTx_BB, param, mmse_eq = False, plot = False):
 
         - seed : int, optional. Determines the pattern of the random signal generated. Default is 2.
 
+        - DPD_active : bool, optional. Flag to indicate if the DPD is activated.
+    
+    lpf : bool, optional. Flag to indicate if the signal is filtered after demodulation. Default is False.
+    
+    bw : float, optional. Bandwidth of the low pass filter after demodulation. Default is 75e6 Hz.
+    
+    plot : bool, optional. If True, the received signal spectrum is plotted after each stage of processing. Default is False.
+    
+    
     Returns
     -------
-    np.array or tuple
-        If `returnChannel` is False, returns a complex-valued array representing the demodulated symbols sequence received.
-        If `returnChannel` is True, returns a tuple containing the demodulated symbols sequence received and the estimated channel.
-
+    symbRx : Complex-valued array representing the received constellation symbols.
+    
+    sigRx : Complex-valued array representing the demodulated basebad OFDM signal.
+    
     """
-
-
-    numOFDMframes = getattr(param, "numOFDMframes", 100)
-    Nfft          = getattr(param, "Nfft", 512)
-    G             = getattr(param, "G", 4)
-    scs           = getattr(param, "scs", 480e3)
-    fc            = getattr(param, "fc", 3e9)
-    Fawg          = getattr(param, "Fawg", 16e9)
-    Fdso          = getattr(param, "Fdso", 16e9)
-    SpS_in        =  getattr(param, "SpS", 32)
-    SpS_out       =  getattr(param, "SpS_out", 4)
+    
+    Nfft = getattr(paramOFDM, "Nfft", 512)
+    G    = getattr(paramOFDM, "G", 4)
+    scs  = getattr(paramOFDM, "scs", 480e3)
+    fc   = getattr(paramOFDM, "fc", 3e9)
+    Fawg = getattr(paramOFDM, "Fawg", 16e9)
+    Fdso = getattr(paramOFDM, "Fdso", 16e9)
+    SpS  = getattr(paramOFDM, "SpS", 32)
     
     # DC level extraction
-    sigRx -= np.mean(sigRx)
+    sigRx_RF -= np.mean(sigRx_RF)
 
     # Band-pass filtering
     numtaps = 4096
     Rs = scs * Nfft
-
+    
     f1 = fc - 1.5*Rs
     f2 = fc + 1.5*Rs
     hbp_RF = firwin(numtaps, (f1, f2), pass_zero = 'bandpass', fs = Fdso)
 
-    sigRx = firFilter(hbp_RF, sigRx)
+    sigRx_RF = firFilter(hbp_RF, sigRx_RF)
 
     if plot:
         print("Spectrum after DC level extraction and BP filtering")
-        plot_spec(sigRx, Fawg, xlim = 10e9)
+        plot_spec(sigRx_RF, Fawg, xlim = 10e9)
 
     # Resampling to AWG frequency
     if Fdso != Fawg:
-        sigRx = clockSamplingInterp(sigRx.reshape(-1, 1), Fdso, Fawg).ravel()
+        sigRx_RF = clockSamplingInterp(sigRx_RF.reshape(-1, 1), Fdso, Fawg).ravel()
 
     if plot:
         print("Spectrum after resampling from Fdso to Fawg")
-        plot_spec(sigRx, Fawg, xlim = 10e9)
+        plot_spec(sigRx_RF, Fawg, xlim = 10e9)
 
     # Filtering to remove replicated spectrum from resampling
     f1 = fc - 1.5*Rs
     f2 = fc + 1.5*Rs
     hbp_RF = firwin(numtaps, (f1, f2), pass_zero = 'bandpass', fs = Fawg)
 
-    sigRx = firFilter(hbp_RF, sigRx)
+    sigRx_RF = firFilter(hbp_RF, sigRx_RF)
 
     if plot:
         print("Spectrum after filtering the replicated spectrum from resampling")
-        plot_spec(sigRx, Fawg, xlim = 10e9)
+        plot_spec(sigRx_RF, Fawg, xlim = 10e9)
 
     # Downconversion
-    t = np.arange(0, sigRx.size)*1/Fawg
-    sigRx = hilbert(sigRx)*np.exp(-1j*2*pi*fc*t)
+    t = np.arange(0, sigRx_RF.size)*1/Fawg
+    sigRx = hilbert(sigRx_RF)*np.exp(-1j*2*pi*fc*t)
 
     if plot:
         print("Spectrum after downconversion")
         plot_spec(sigRx, Fawg, xlim = 0.25e9)
 
     sigRx = pnorm(sigRx)
-    sigRx_BB = sigRx.copy() 
     
-    # Delay correction
+    # Matching the array sizes for delay correction
     samples_per_frame = int(Fawg/Rs) * (Nfft + G)
-    numOFDMframes_rx = sigRx.size//samples_per_frame
+    numOFDMframes_rx  = sigRx.size//samples_per_frame
     
-    diff_samples = np.abs(sigRx.size - sigTx_BB.size)
+    diff_samples = np.abs(sigRx.size - sigTx.size)
 
-    if sigRx.size < sigTx_BB.size:
+    if sigRx.size < sigTx.size:
         sigRx = np.pad(sigRx, (0, diff_samples))
     else:
-        sigTx_BB = np.pad(sigTx_BB, (0, diff_samples))
+        sigTx = np.pad(sigTx, (0, diff_samples))
 
-    delay = finddelay(sigRx, sigTx_BB)
-    sigRx = np.roll(sigRx, -delay)
-    
     # Low pass filtering
-    bw = 75e6
-    hlp = firwin(numtaps, bw, fs = Fawg)
-    sigRx = firFilter(hlp, sigRx)
-    sigRx -= np.mean(sigRx)
+    if lpf:
+        hlp = firwin(numtaps, bw, fs = Fawg)
+        sigRx = firFilter(hlp, sigRx)
+        
+        if plot:
+            print("Spectrum after low pass filtering")
+            plot_spec(sigRx, Fawg, xlim = 0.25e9)
     
-    delay = finddelay(sigRx, sigTx_BB)
+    delay = finddelay(sigRx, sigTx)
     sigRx = np.roll(sigRx, -delay)
     
-    if plot:
-        print("Spectrum after low pass filtering")
-        plot_spec(sigRx, Fawg, xlim = 0.25e9)
+    # Phase correction
+    samples_per_frame  = SpS * (Nfft + G)
     
-    # Downsampling to SpS_out
-    samples_per_frame_in  = SpS_in  * (Nfft + G)
-    samples_per_frame_out = SpS_out * (Nfft + G)
-    
-    sigRx_BB = clockSamplingInterp(sigRx_BB[0:numOFDMframes_rx*samples_per_frame_in].reshape(-1, 1), Fawg, Fawg/(SpS_in/SpS_out)).ravel()
-    sigRx    = clockSamplingInterp(sigRx[0:numOFDMframes_rx*samples_per_frame_in].reshape(-1, 1), Fawg, Fawg/(SpS_in/SpS_out)).ravel()
-    sigRef   = clockSamplingInterp(sigTx_BB[0:numOFDMframes_rx*samples_per_frame_in].reshape(-1, 1), Fawg, Fawg/(SpS_in/SpS_out)).ravel()
-    
-    delay = finddelay(sigRx, sigRef)
-    sigRx = np.roll(sigRx, -delay)
-    
-    # Phase correction and MMSE equalizer
-    sigRef_par = np.reshape(sigRef[0:numOFDMframes_rx*samples_per_frame_out], (numOFDMframes_rx, samples_per_frame_out))        
-    sigRx_par  = np.reshape(sigRx[0:numOFDMframes_rx*samples_per_frame_out],  (numOFDMframes_rx, samples_per_frame_out))
+    sigTx_par = np.reshape(sigTx[0:numOFDMframes_rx*samples_per_frame], (numOFDMframes_rx, samples_per_frame))        
+    sigRx_par = np.reshape(sigRx[0:numOFDMframes_rx*samples_per_frame],  (numOFDMframes_rx, samples_per_frame))
     
     for frame in range(numOFDMframes_rx):
-        rot   = np.mean(sigRef_par[frame,:]/sigRx_par[frame, :])
+        rot   = np.mean(sigTx_par[frame,:]/sigRx_par[frame, :])
         sigRx_par[frame, :] = rot/np.abs(rot)*sigRx_par[frame, :]
-        
-        h_mmse = []
-        
-        if mmse_eq:
-            Ntaps = 5
-            Nsamples = samples_per_frame_out
-            
-            print(f"\n- Frame {frame + 1}:")
-            
-            MSE = 10*np.log10(np.mean( np.abs(sigRx_par[frame,:] - sigRef_par[frame,:])**2 ))
-            print(f"MSE before equalization = {MSE:.3f} dB")
-            
-            sigRx_par[frame, :], h = mmse_equalizer(sigRef_par[frame,:], sigRx_par[frame,:], Ntaps, Nsamples)
-            
-            delay = finddelay(sigRx_par[frame, :], sigRef_par[frame, :])
-            sigRx_par[frame, :] = np.roll(sigRx_par[frame, :], -delay)
-            
-            MSE = 10*np.log10(np.mean( np.abs(sigRx_par[frame,:] - sigRef_par[frame,:])**2 ))
-            print(f"MSE after equalization = {MSE:.3f} dB")
-            
-            h_mmse.append(h)
-
-        sigRx = sigRx_par.ravel()
-        sigRef = sigRef.ravel()
+    
+    sigRx = sigRx_par.ravel()
         
     if plot:
-        plot_sig([sigRef, sigRx], Fs = Fawg / (SpS_in/SpS_out), labels = ["Tx", "Rx"], indx = np.arange(0, 500))
+        plot_sig([sigTx, sigRx], Fs = Fawg, labels = ["Tx", "Rx"], indx = np.arange(0, 10_000))
 
-    # Decimation
-    symbRx_OFDM = sigRx[0::SpS_out][0:numOFDMframes_rx*(Nfft + G)]
+    # Decimation and symbols extraction
+    symbRx_OFDM = sigRx.copy()[0::SpS][0:numOFDMframes_rx*(Nfft + G)]
 
-    if mmse_eq:
-        symbRx = demodulateOFDM_v2(symbRx_OFDM, param)
-        symbRx = pnorm(symbRx)
+    symbRx = demodulateOFDM(symbRx_OFDM, paramOFDM)
+    symbRx = pnorm(symbRx)
+    
+    return symbRx, sigRx
+    
 
-        return sigRx, sigRx_BB, symbRx, h_mmse
+def prepare_data_training(sigTx, sigRx, SpS_in, SpS_out, DPD_model, paramOFDM, device = "cpu"):
+    Nfft = paramOFDM.Nfft
+    G    = paramOFDM.G
+    Fs   = paramOFDM.Fawg
+    
+    # Samples per frame before and after downsampling to SpS_out
+    samples_per_frame  = SpS_in  * (Nfft + G)    
+    numOFDMframes_rx = sigRx.size // samples_per_frame
+    
+    # Resampling of input and output signal
+    sigRef = clockSamplingInterp(sigTx[0:numOFDMframes_rx*samples_per_frame].reshape(-1, 1), Fs, Fs/(SpS_in/SpS_out)).ravel()
+    sigIn  = clockSamplingInterp(sigRx[0:numOFDMframes_rx*samples_per_frame].reshape(-1, 1), Fs, Fs/(SpS_in/SpS_out)).ravel()
+    
+    delay = finddelay(sigIn, sigRef)
+    sigIn = np.roll(sigIn, -delay)
+    
+    rot = np.mean(sigRef/sigIn)
+    sigIn = rot/np.abs(rot)*sigIn
+
+    if DPD_model == "NN" or DPD_model == "KAN":
+        sigRef = th.from_numpy(sigRef).to(device).type(th.complex64)
+        sigIn  = th.from_numpy(sigIn).to(device).type(th.complex64)
+    
+    return sigRef, sigIn
+    
+
+def apply_DPD(sig, paramDPD):
+    model = paramDPD.model
+    DPD   = paramDPD.DPD
+    
+    if model == "NN" or model == "KAN":
+        device  = paramDPD.device
+        Ntaps   = paramDPD.Ntaps
+        K       = paramDPD.K
+        augment = paramDPD.augment
+        
+        sig = th.from_numpy(sig).to(device).type(th.complex64)
+        
+        DPD.eval()
+        sig = fitFilterNN(sig, DPD, Ntaps, K, 1, 100, augment = augment)
+        
+        sig = sig.detach().cpu().numpy()
     
     else:
-        symbRx = demodulateOFDM_v2(symbRx_OFDM, param)
-        symbRx = pnorm(symbRx)
+        P = paramDPD.P
+        M = paramDPD.M
+        
+        sig = MP_filter(sig, np.conj(DPD).reshape((P, M)))
 
-        return sigRx, sigRx_BB, symbRx
+    return sig
     
 
-
-def estimate_correlation_matrix(x, N):
-    M = len(x)
-    if N > M:
-        raise ValueError("Order N should be smaller than or equal to the length of the sequence M.")
-
-    # Create a matrix where each row is a shifted version of the original sequence
-    X = np.array([x[i:M-N+i+1] for i in range(N)])
-
-    # Compute the unbiased correlation matrix
-    R = (X @ np.conj(X.T)) / (M - np.arange(N)[:, None])
-
-    return R
-
-def estimate_cross_correlation(x, d, N):
-    M = len(x)
-    if len(d) != M:
-        raise ValueError("The sequences x and d must have the same length.")
-    if N > M:
-        raise ValueError("N should be smaller than or equal to the length of the sequences.")
-
-    p = np.zeros(N, dtype = complex)
-    count = np.zeros(N)  # To keep track of the number of terms contributing to each element of p
-
-    # Estimate the unbiased cross-correlation
-    for k in range(N, M):  # Start from k = N to ensure we can form x_vec
-        x_vec = x[k:k-N:-1]  # Create the vector x_vec = [x[k], x[k-1], ..., x[k-N+1]]
-        p += x_vec * np.conj(d[k])
-        count += 1  # Keep track of the number of terms contributing to each element
-
-    # Normalize to make the estimation unbiased
-    p /= count
-
-    return p
-
-
-def mmse_equalizer(x, y, Ntaps, Nsamples, sigma = 0):
-    R = estimate_correlation_matrix(y[0:Nsamples], Ntaps)
-    p = estimate_cross_correlation(y[0:Nsamples], x[0:Nsamples], Ntaps)
-
-    h = (np.linalg.inv(R) + sigma * np.eye(Ntaps)) @ p
-    h   /= np.linalg.norm(h)
+def test_DPD_as_equalizer(sigRx, paramDPD, paramOFDM, lpf = False, bw = 75e6):
+    Nfft = paramOFDM.Nfft
+    G    = paramOFDM.G
+    Fs   = paramOFDM.Fawg
+    SpS  = paramOFDM.SpS
+    SpS_DPD = paramDPD.SpS_DPD
     
-    y_eq = firFilter(np.conj(h), y)
-
-    return y_eq, h
+    # Samples per frame before and after downsampling to SpS_out
+    samples_per_frame  = SpS * (Nfft + G)    
+    numOFDMframes_rx = sigRx.size // samples_per_frame
     
+    sigRx_DPD = clockSamplingInterp(sigRx[0:numOFDMframes_rx*samples_per_frame].reshape(-1, 1), Fs, Fs/(SpS/SpS_DPD)).ravel()
+    sigRx_DPD = apply_DPD(sigRx_DPD, paramDPD)
+    sigRx_PA  = sigRx_DPD.copy()
+    
+    # Low-pass filtering
+    if lpf:
+        hlp = firwin(4096, bw, fs = Fs/(SpS/SpS_DPD))
+        sigRx_DPD = firFilter(hlp, sigRx_DPD)
+        sigRx_DPD -= np.mean(sigRx_DPD)
+    
+    # OFDM demodulation
+    symbRx_OFDM = sigRx_DPD.copy()[0::SpS_DPD][0:numOFDMframes_rx*(Nfft + G)]
+    symbRx_DPD = demodulateOFDM(symbRx_OFDM.copy(), paramOFDM)
+    
+    return symbRx_DPD, sigRx_PA
 
-def demodulateOFDM_v2(sig, param=None):
+
+def calculate_metrics(symbTx, symbRx, discard, paramOFDM):
     """
-    Demodulate OFDM signal.
+    Calculated transmission metrics.
 
     Parameters
     ----------
-    sig : np.np.array
-        Complex-valued array representing the OFDM signal sequence received at one sample per symbol.
-    param : optic.utils.parameters object, optional
-        Parameters for OFDM demodulation.
+    symbTx : Complex-valued array representing the transmitted constellation symbols.
+    
+    symbRx : Complex-valued array representing the received constellation symbols.
+    
+    discard : Int. Number of symbols to discard in metrics calculation.
+    
+    paramOFDM : optic.utils.parameters object
+        An object containing the parameters for OFDM modulation.
 
-        - param.Nfft : scalar, optional. Size of the FFT [default: 512].
-        - param.G : scalar, optional. Cyclic prefix length [default: 4].
-        - param.hermitSymmetry : bool, optional. If True, indicates real OFDM symbols; if False, indicates complex OFDM symbols [default: False].
-        - param.pilot : complex-valued scalar, optional. Pilot symbol [default: 1 + 1j].
-        - param.pilotCarriers : np.array, optional. Indexes of pilot subcarriers [default: an empty array].
-        - param.nullCarriers : np.array, optional. Indexes of null subcarriers [default: an empty array].
-        - param.returnChannel : bool, optional. If True, return the estimated channel [default: False].
+    Returns
+    ----------
+    EVM : Error vector magnitude [%]
+    
+    BER : Bit error rate
+    
+    SNR : Signal to noise ratio [dB]
+    
+    """
+    
+    modOrder = paramOFDM.modOrder
+    modType  = paramOFDM.modType
+    Ni       = paramOFDM.Ni
+
+    numOFDMframes_rx = symbRx.size // Ni
+    
+    index = np.arange(0, symbRx.size - discard)
+    
+    BER, _, SNR = fastBERcalc(symbRx[index], symbTx[0:Ni*numOFDMframes_rx][index], modOrder, modType)
+    EVM = np.sqrt(calcEVM(symbRx[index], modOrder, modType, symbTx[0:Ni*numOFDMframes_rx][index]))*100
+
+    return EVM, BER, SNR
+
+
+def calcACLR(Psd, freqs, B):
+    """
+    Calculate the Adjacent Channel Leakage Ratio (ACLR).
+
+    Parameters
+    ----------
+    Psd : numpy.ndarray
+        Power spectral density (Psd) values.
+    freqs : numpy.ndarray
+        Frequency values corresponding to the Psd array.
+    B : float
+        Bandwidth of the adjacent channel.
 
     Returns
     -------
-    np.array or tuple
-        If `returnChannel` is False, returns a complex-valued array representing the demodulated symbols sequence received.
-        If `returnChannel` is True, returns a tuple containing the demodulated symbols sequence received and the estimated channel.
+    float
+        Calculated ACLR value in decibels (dB).
 
     Notes
     -----
-    - The input signal must be sampled at one sample per symbol.
-    - This function performs demodulation of the OFDM signal according to the provided parameters, including channel estimation and single tap equalization.
+    The ACLR measures the power leakage from one channel into an adjacent channel. 
+    It is calculated as the ratio of the power outside of the adjacent channel 
+    bandwidth to the power inside the adjacent channel bandwidth.
+
+    The function computes the ACLR using the following steps:
+    1. Compute the frequency resolution (df) as the difference between consecutive frequency values.
+    2. Calculate the total power inside and outside the adjacent channel bandwidth.
+    3. Compute the ratio of power outside to power inside the adjacent channel bandwidth.
+    4. Convert the ratio to decibels (dB) using the `lin2dB` function.
 
     References
     ----------
-    [1] Proakis, J. G., & Salehi, M. Digital Communications (5th Edition). McGraw-Hill Education, 2008.
+    [1] 3GPP TS 36.101: "User Equipment (UE) radio transmission and reception."
+        https://www.3gpp.org/ftp/Specs/html-info/36101.htm
+
+    [2] 3GPP TS 38.104: "Base Station (BS) radio transmission and reception."
+        https://www.3gpp.org/ftp/Specs/html-info/38104.htm
     """
+    df = freqs[1] - freqs[0]
+    Pin = np.sum(Psd[freqs >= -B] * df) - np.sum(Psd[freqs >= B] * df)
+    Pout = np.sum(Psd[freqs <= -B] * df) + np.sum(Psd[freqs >= B] * df)
 
-    # Check and set default values for input parameters
-    Nfft = getattr(param, "Nfft", 512)
-    G = getattr(param, "G", 4)
-    hermitSymmetry = getattr(param, "hermitSymmetry", False)
-    pilot = getattr(param, "pilot", 0.25 + 0.25j)
-    returnChannel = getattr(param, "returnChannel", False)
-    pilotCarriers = getattr(param, "pilotCarriers", np.array([], dtype=np.int64))
-    nullCarriers = getattr(param, "nullCarriers", np.array([], dtype=np.int64))
+    return 10*np.log10(Pout / Pin)
 
-    Ns = Nfft // 2 - 1 if hermitSymmetry else Nfft
-    Np = len(pilotCarriers)
-    Nz = len(nullCarriers)
-    Ni = Ns - Np - Nz
 
-    Carriers = np.arange(0, Ns)
-    dataCarriers = np.setdiff1d(Carriers, np.union1d(pilotCarriers, nullCarriers))
+# Plot functions
 
-    numSymb = len(sig)
-
-    if numSymb % (Nfft + G) != 0:
-        raise ValueError(
-            f"Number of received symbols ({numSymb}) is not divisible by Nfft + G ({Nfft + G})."
-        )
-
-    numOFDMframes = numSymb // (Nfft + G)
-
-    H_abs = 0
-    H_pha = 0
-
-    sig_par = np.reshape(sig, (numOFDMframes, Nfft + G))
-
-    # Cyclic prefix removal
-    sig_par = sig_par[:, G : G + Nfft]
-
-    # FFT operation
-    for indFrame in range(numOFDMframes):
-        sig_par[indFrame, :] = fftshift(fft(sig_par[indFrame, :])) / np.sqrt(Nfft)
-
-    if hermitSymmetry:
-        # Removal of hermitian symmetry
-        sig_par = sig_par[:, 1 : 1 + Ns]
-
-    # Channel estimation and single tap equalization
-    if Np != 0:
-        # Channel estimation
-        for indFrame in range(numOFDMframes):
-            H_est = sig_par[indFrame, :][pilotCarriers] / pilot
-
-            H_abs += interp1d(
-                pilotCarriers, np.abs(H_est), kind="linear", fill_value="extrapolate"
-            )(Carriers)
-            H_pha += interp1d(
-                pilotCarriers, np.angle(H_est), kind="linear", fill_value="extrapolate"
-            )(Carriers)
-
-            if indFrame == numOFDMframes - 1:
-                H_abs = H_abs / numOFDMframes
-                H_pha = H_pha / numOFDMframes
-
-        for indFrame in range(numOFDMframes):
-            sig_par[indFrame, :] = sig_par[indFrame, :] / ( np.exp(1j * H_pha) )
-
-    # Data carriers
-    sig_par = sig_par[:, dataCarriers]
-
-    if returnChannel:
-        return sig_par.ravel(), H_abs * np.exp(1j * H_pha)
-    else:
-        return sig_par.ravel()
-
-    
 def plot_spec(sig, Fs, xlim):
     fig, axs = plt.subplots(figsize = (8, 4))
     axs.psd(sig, Fs = Fs/1e9, NFFT = 16*1024, color = "b", sides = 'twosided')
@@ -578,7 +580,6 @@ def plot_spec(sig, Fs, xlim):
 
 def plot_sig(sig, Fs, labels = ["Tx", "Rx"], indx = np.arange(0, 500)):
     fig, axs = plt.subplots(4, 1, figsize = (8, 16))
-    indx = np.arange(1, 500)
     t = np.arange(0, sig[0].size)/(Fs)
     
     for i in range(len(sig)):
@@ -617,7 +618,6 @@ def plot_sig(sig, Fs, labels = ["Tx", "Rx"], indx = np.arange(0, 500)):
     plt.tight_layout()
     plt.show()
     
-
 
 def plot_const(symb, colors, index, save = False, show = False, filename = None):
     fig, axs = plt.subplots(figsize = (7, 7))
