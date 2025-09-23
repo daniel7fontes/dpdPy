@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+"""
+======================================================================
+Funções verificação de desempenho da DPD
+======================================================================
+"""
+
+import numpy as np
+from scipy.constants import pi
+
+
+def calcMSE(x, y):
+    """
+    Estimativa do Erro Médio Quadrático entre os sinais de entrada x e de saída y
+    
+    Parameters
+    ----------
+    x : np.array
+        Sinal de entrada do sistema
+    y : np.array
+        Sinal de saída do sistema
+        
+    Returns
+    -------
+    MSE : float
+          Erro médio quadrático entre x e y [dB]
+    """
+    
+    MSE = np.mean(np.abs(y - x)**2)
+    return 10*np.log10(MSE)
+
+
+def calcNMSE(x, y):
+    """
+    Estimativa do Erro Médio Quadrático Normalizado entre os sinais de entrada x e de saída y
+    
+    Parameters
+    ----------
+    x : np.array
+        Sinal de entrada do sistema
+    y : np.array
+        Sinal de saída do sistema
+        
+    Returns
+    -------
+    NMSE : float
+           Erro médio quadrático normalizado entre x e y [dB]
+    """
+    
+    NMSE = np.mean(np.abs(y - x)**2) / np.mean(np.abs(x)**2)
+    return 10*np.log10(NMSE)
+
+
+def calcPAPR(signal):
+    peak_power = np.max(np.abs(signal)) ** 2
+    average_power = np.mean(np.abs(signal) ** 2)
+    
+    papr = peak_power / average_power
+    
+    return 10 * np.log10(papr)
+
+
+def calcSNR_per_carrier(symbTx, symbRx, Ns):
+    rx = np.reshape(symbRx, (-1, Ns))
+    tx = np.reshape(symbTx.copy(), (-1, Ns))
+    
+    SNR_per_carrier = np.zeros(Ns)
+    
+    for k in range(Ns):
+        SNR_per_carrier[k] = 10*np.log10(np.mean(np.abs((tx[:, k]))**2) / np.mean(np.abs((rx[:, k] - tx[:, k]))**2))
+
+    return SNR_per_carrier
+
+
+def power_amplifier(x, g=16, σ=1.1, c=1.9, α=-345, β=0.17, q=4):
+    abs_x = np.abs(x)
+    phi_x = np.angle(x)
+
+    abs_y = g * abs_x / (1 + np.abs(g * abs_x / c)**(2 * σ) ) ** (1 / (2 * σ))
+    phi_y = α * abs_x**q / (1 + (abs_x / β) ** q) * (pi / 180)
+
+    return abs_y * np.exp(1j * (phi_x + phi_y))
+
+
+def clip_complex(sig, max_amp):
+    clip_pos = np.where( np.abs(sig) > max_amp )[0]
+    
+    if (len(clip_pos) != 0):
+        for i in clip_pos:
+            sig[i] = sig[i] * max_amp / np.abs(sig[i])
+    
+    return sig

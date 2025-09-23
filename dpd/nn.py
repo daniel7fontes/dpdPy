@@ -10,11 +10,10 @@ import torch as th
 import kan   as kn
 
 from tqdm.notebook   import tqdm
-from scipy.constants import pi
 from torch           import nn
 
 from optic_private.torchDSP   import pnorm
-from optic_private.torchUtils import memoryLessDataSet, MLP, slidingWindowDataSet, fitFilterNN
+from optic_private.torchUtils import memoryLessDataSet, MLP, ETDNN, EKAN, slidingWindowDataSet, fitFilterNN
 
 def NN_training(sigIn, sigRef, param):
     
@@ -36,10 +35,16 @@ def NN_training(sigIn, sigRef, param):
     directLearn   = param.directLearn
     device        = param.device
     
+    envelope      = param.envelope
+    
     activations = {'leaky_relu': nn.LeakyReLU(), 'relu': nn.ReLU(), 'sigmoid': nn.Sigmoid(), 'tanh': nn.Tanh()}   
         
-    # Define neural network (KAN) model
-    DPD_model = MLP(layers, activation = activations[activation] ).to(device)
+    # Define neural network (MLP) model
+    if not(envelope):
+        DPD_model = MLP(layers, activation = activations[activation] ).to(device)
+    else:
+        DPD_model = ETDNN(layers, activation = activations[activation] ).to(device)
+    
     
     loss_fn = nn.MSELoss()
     optimizer = th.optim.Adam(DPD_model.parameters(), lr = lr)
@@ -111,7 +116,7 @@ def NN_training(sigIn, sigRef, param):
                                                            batch_size, includeMemory, Ntaps, K, device, shuffle = shuffle, augment=augment)
         numBatches_train = len(train_dataloader)
         numBatches_test  = len(test_dataloader)
-
+        
         for t in tqdm(range(epochs), disable = not(pgrsBar)): 
             # Training
             DPD_model.train()
@@ -249,6 +254,18 @@ def createDatasets(
     return train_dataloader, test_dataloader
 
 
+def custom_prune(model, node_th=1e-2, edge_th=3e-2):
+    model.attribute()
+    model.prune_edge(edge_th, log_history=False)
+    #model.forward(model.cache_data)
+    
+    model.attribute()
+    #model.log_history('prune')
+    
+    model = model.prune_node(node_th, log_history=False)
+    
+    return model
+
 
 def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
     
@@ -273,8 +290,15 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
     directLearn   = param.directLearn
     device        = param.device
     
+    pruning_epochs = param.pruning_epochs
+    
+    envelope      = param.envelope
+    
     # Define neural network (KAN) model
-    DPD_model = kn.KAN(width = layers, grid = grid, k = k, seed = seed, device = device, auto_save=False)
+    if not(envelope):
+        DPD_model = kn.KAN(width = layers, grid = grid, k = k, seed = seed, device = device, auto_save=False)
+    else:
+        DPD_model = EKAN(layers, grid, k, seed, device)
     
     loss_fn = nn.MSELoss()
     optimizer = th.optim.Adam(DPD_model.parameters(), lr = lr)
@@ -294,6 +318,14 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
             p.requires_grad = False
         
         for t in tqdm(range(epochs), disable = not(pgrsBar)):   
+           
+            # Pruning, if indicated
+            if t in pruning_epochs:
+                if envelope:
+                    DPD_model.KAN = custom_prune(DPD_model.KAN)
+                else:
+                    DPD_model = custom_prune(DPD_model)
+                    
             # Training
             DPD_model.train()
             trainLoss[t] = 0
@@ -328,7 +360,7 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
                     # Compute prediction error        
                     chInput = DPD_model(X)           
                     
-                    chInput = th.view_as_complex(chInput)
+                    chInput  = th.view_as_complex(chInput)
                     chOutput = th.view_as_real(fitFilterNN(chInput, RoFChannel_model, Ntaps, K, 1, len(chInput)))
                     
                     loss = loss_fn(chOutput, y)
@@ -336,7 +368,7 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
                     
             testLoss[t] /= numBatches_test
             
-            if (t+1)%200 == 0:
+            if (t+1)%100 == 0:
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']/1.25
             
@@ -351,6 +383,7 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
         numBatches_test  = len(test_dataloader)
         
         for t in tqdm(range(epochs), disable = not(pgrsBar)):             
+            
             # Training
             DPD_model.train()
             trainLoss[t] = 0
@@ -391,29 +424,18 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
                 
             testLoss[t] /= numBatches_test
             
+            # Pruning, if indicated
+            if t in pruning_epochs:
+                if envelope:
+                    DPD_model.KAN = custom_prune(DPD_model.KAN)
+                else:
+                    DPD_model = custom_prune(DPD_model)
+            
             if t % 50 == 0:
                 DPD_model.update_grid(X)
     
-            if (t+1)%200 == 0:
+            if (t+1)%100 == 0:
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']/2
         
-    return DPD_model , trainLoss, testLoss
-
-
-
-
-
-#if prune:
-#    epochs_bfr_pruning = int(0.25*epochs)
-#    epochs_aft_pruning = epochs - epochs_bfr_pruning
-    
-#    results = DPD_model.fit(dataset, opt = optimizer, steps = epochs_bfr_pruning, lamb = lamb, batch = batch_size, loss_fn = loss_fn, lr = lr, metrics = (train_metric, test_metric), update_grid = True)
-#    trainLoss[0:epochs_bfr_pruning] = results["train_metric"]
-#    testLoss[0:epochs_bfr_pruning]  = results["test_metric"]
-    
-#    DPD_model.prune()
-    
-#    results = DPD_model.fit(dataset, opt = optimizer, steps = epochs_aft_pruning, lamb = lamb, batch = batch_size, loss_fn = loss_fn, lr = lr, metrics = (train_metric, test_metric), update_grid = True)
-#    trainLoss[epochs_bfr_pruning:] = results["train_metric"]
-    #    testLoss[epochs_bfr_pruning:]  = results["test_metric"]
+    return DPD_model, trainLoss, testLoss
