@@ -46,7 +46,7 @@ class slidingWindowDataSet(Dataset):
         __len__(self): Returns the total number of items in the dataset.
     """
 
-    def __init__(self, x, y, Ntaps, SpS=1, c=False, augment = False):
+    def __init__(self, x, y, Ntaps, K, SpS=1, c=False, augment = False):
         """
         Initialize the slidingWindowDataSet.
 
@@ -61,7 +61,7 @@ class slidingWindowDataSet(Dataset):
         self.SpS = SpS
         x_pad = th.nn.functional.pad(x, (Ntaps // 2, Ntaps // 2), "constant", 0)
         if augment:
-            self.x = augmentFeatures(x_pad).to(th.float32)
+            self.x = augmentFeatures(x_pad, K).to(th.float32)
         else:
             self.x = th.view_as_real(x_pad).to(th.float32)
 
@@ -101,7 +101,7 @@ class slidingWindowDataSet(Dataset):
         return (len(self.x) - self.Ntaps) // self.SpS
 
 
-def augmentFeatures(x):
+def augmentFeatures(x, K):
     """
     Augment the features of a complex-valued tensor.
 
@@ -120,8 +120,14 @@ def augmentFeatures(x):
         - Absolute squared value of the input tensor.
         - Absolute value to the third power of the input tensor.
     """
-    return th.stack([x.real, x.imag, th.abs(x), th.abs(x) ** 2, th.abs(x) ** 3], dim=1)
+    
+    x_list = [x.real, x.imag]
+    
+    for k in range(K):
+        x_list.append(th.abs(x)**(k+1))
 
+    return th.stack(x_list, dim = 1)
+    
 
 class autoEncoderDataSet(Dataset):
     """
@@ -236,6 +242,131 @@ class MLP(nn.Module):
         for ind, layer in enumerate(self.layers):
             x = self.activation(layer(x)) if ind < self.num_layers - 2 else layer(x)
         return x
+
+
+class ETDNN(nn.Module):
+    def __init__(self, layer_sizes, activation=nn.ReLU()):
+        """
+        Initialize the Envelope Time-Delay Neural Network (ETDNN).
+
+        Args:
+            layer_sizes (list): List containing the number of neurons in each layer.
+            activation (torch.nn.Module, optional): Activation function to be used in the hidden layers. Default is ReLU.
+
+        Example:
+            mlp = ETDNN([10, 5, 2], activation=nn.Sigmoid())  # Create an ETDNN with 3 layers, using Sigmoid activation in the hidden layers
+        """
+        super(ETDNN, self).__init__()
+        self.num_layers = len(layer_sizes)
+        self.layers = nn.ModuleList()
+        self.activation = activation
+
+        for i in range(self.num_layers - 1):
+            if i == self.num_layers - 2:
+                self.linear_real = nn.Linear(layer_sizes[i], layer_sizes[i + 1])
+                self.linear_imag = nn.Linear(layer_sizes[i], layer_sizes[i + 1])
+                
+            else:
+                self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+        
+        
+
+    def forward(self, x):
+        """
+        Perform forward propagation through the MLP network.
+
+        Args:
+            x (torch.Tensor): Input data.
+
+        Returns:
+            torch.Tensor: Output of the MLP network.
+
+        Example:
+            output = etdnn.forward(input_data)  # Perform forward propagation
+        """
+        
+        #x_complex = th.view_as_complex(x.reshape(-1, 2))
+        #x_abs = th.abs(x_complex)
+        
+        batch_size = x.shape[0]
+        Ntaps      = x.shape[1]//2
+        
+        x_complex = th.view_as_complex(x.reshape((batch_size, Ntaps, 2)))
+        x_out     = th.abs(x_complex)
+        
+        for ind, layer in enumerate(self.layers):
+            x_out = self.activation(layer(x_out)) # if ind < self.num_layers - 2 else layer(x_abs) 
+        
+        # Complex layer
+        x_out = self.linear_real(x_out) + 1j*self.linear_imag(x_out)
+        
+        y = th.sum(x_out*x_complex, axis = 1)
+        y = th.view_as_real(y)
+            
+        return y
+
+
+import kan as kn
+
+class EKAN(nn.Module):
+    def __init__(self, layer_sizes, grid, k, seed, device):
+        """
+        Initialize the Envelope Time-Delay Neural Network (ETDNN).
+
+        Args:
+            layer_sizes (list): List containing the number of neurons in each layer.
+            activation (torch.nn.Module, optional): Activation function to be used in the hidden layers. Default is ReLU.
+
+        Example:
+            mlp = ETDNN([10, 5, 2], activation=nn.Sigmoid())  # Create an ETDNN with 3 layers, using Sigmoid activation in the hidden layers
+        """
+        super(EKAN, self).__init__()
+        self.num_layers = len(layer_sizes)
+        self.grid   = grid
+        self.k      = k
+        self.width  = layer_sizes
+        self.seed   = seed
+        self.device = device
+        
+        self.KAN = kn.KAN(width = layer_sizes, grid = grid, k = k, seed = seed, device = device, auto_save = False)
+        
+
+    def forward(self, x):
+        """
+        Perform forward propagation through the MLP network.
+
+        Args:
+            x (torch.Tensor): Input data.
+
+        Returns:
+            torch.Tensor: Output of the MLP network.
+
+        Example:
+            output = etdnn.forward(input_data)  # Perform forward propagation
+        """
+        
+        batch_size = x.shape[0]
+        Ntaps      = x.shape[1]//2
+        
+        x_complex = th.view_as_complex(x.reshape((batch_size, Ntaps, 2)))
+        x_out     = th.abs(x_complex)
+        
+        x_out = self.KAN.forward(x_out)
+        
+        y = th.sum(x_out*x_complex, axis = 1)
+        y = th.view_as_real(y)
+            
+        return y
+
+    def update_grid(self, x):
+        batch_size = x.shape[0]
+        Ntaps      = x.shape[1]//2
+        
+        x_complex = th.view_as_complex(x.reshape((batch_size, Ntaps, 2)))
+        x_out     = th.abs(x_complex)
+        
+        self.KAN.update_grid(x_out)
+        
 
 
 def generate_one_hot_vectors(class_ids, M):
@@ -377,7 +508,7 @@ class memoryLessDataSet(Dataset):
         __len__(self): Returns the total number of items in the dataset.
     """
 
-    def __init__(self, signal, symbols, augment=False):
+    def __init__(self, signal, symbols, K, augment=False):
         """
         Initialize the memoryLessDataSet.
 
@@ -390,7 +521,7 @@ class memoryLessDataSet(Dataset):
         self.augment = augment
 
         if augment:
-            self.signal = augmentFeatures(signal)
+            self.signal = augmentFeatures(signal, K)
         else:
             self.signal = th.view_as_real(signal)
 
@@ -493,19 +624,19 @@ def test_model(dataloader, model, loss_fn):
 
 
 def fitFilterNN(
-    sig, model, Ntaps, SpS=1, batchSize=100, augment=False, predict=True, prgsBar=False
+    sig, model, Ntaps, K, SpS=1, batchSize=100, augment=False, predict=True, prgsBar=False
 ):
     sigPad = th.nn.functional.pad(sig, (Ntaps // 2, Ntaps // 2), "constant", 0)
 
     model.eval() if predict else model.train()
     numSymb = len(sig) // SpS
     numBatches = numSymb // batchSize
-
+    
     indTaps = th.arange(0, Ntaps, dtype=th.int64)
     y = th.zeros(numSymb, dtype=th.complex64, device=sig.device)
 
     if augment:
-        sigPad = augmentFeatures(sigPad)
+        sigPad = augmentFeatures(sigPad, K)
     else:
         sigPad = th.view_as_real(sigPad).to(th.float32)
 
@@ -522,6 +653,9 @@ def fitFilterNN(
             x = sigPad[indIn.flatten(), :].reshape(
                 batchSize, -1
             )  # Flattening and reshaping
-            y[sampleInd] = th.view_as_complex(model(x.unsqueeze(1))).squeeze(1)
+            
+            y[sampleInd] = th.view_as_complex(model(x)).squeeze(0)
+            #y[sampleInd] = th.view_as_complex(model(x.unsqueeze(1))).squeeze(1)
+            
 
     return y
