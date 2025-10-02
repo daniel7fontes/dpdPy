@@ -1,9 +1,11 @@
 import torch as th
+import kan as kn
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import logging as logg
 from tqdm import tqdm
+from sympy import lambdify
 import contextlib
 
 
@@ -306,20 +308,12 @@ class ETDNN(nn.Module):
         return y
 
 
-import kan as kn
+#x = x.cpu().numpy()
+#x_list = [ x[:,i] for i in range(2*Ntaps) ]
+#y[sampleInd] = model[0](x_list) + 1j*model[1](x_list)  
 
 class EKAN(nn.Module):
     def __init__(self, layer_sizes, grid, k, seed, device):
-        """
-        Initialize the Envelope Time-Delay Neural Network (ETDNN).
-
-        Args:
-            layer_sizes (list): List containing the number of neurons in each layer.
-            activation (torch.nn.Module, optional): Activation function to be used in the hidden layers. Default is ReLU.
-
-        Example:
-            mlp = ETDNN([10, 5, 2], activation=nn.Sigmoid())  # Create an ETDNN with 3 layers, using Sigmoid activation in the hidden layers
-        """
         super(EKAN, self).__init__()
         self.num_layers = len(layer_sizes)
         self.grid   = grid
@@ -328,35 +322,64 @@ class EKAN(nn.Module):
         self.seed   = seed
         self.device = device
         
-        self.KAN = kn.KAN(width = layer_sizes, grid = grid, k = k, seed = seed, device = device, auto_save = False)
+        self.symb = False
+        self.KAN = kn.KAN(width = self.width.copy(), grid = self.grid, k = self.k, seed = self.seed, device = self.device, auto_save = False)
         
-
+        
     def forward(self, x):
-        """
-        Perform forward propagation through the MLP network.
-
-        Args:
-            x (torch.Tensor): Input data.
-
-        Returns:
-            torch.Tensor: Output of the MLP network.
-
-        Example:
-            output = etdnn.forward(input_data)  # Perform forward propagation
-        """
-        
         batch_size = x.shape[0]
         Ntaps      = x.shape[1]//2
         
         x_complex = th.view_as_complex(x.reshape((batch_size, Ntaps, 2)))
         x_out     = th.abs(x_complex)
         
-        x_out = self.KAN.forward(x_out)
+        
+        if not(self.symb):
+            x_out = self.KAN.forward(x_out)
+        else:
+            x_out = self.forward_symb(x_out)
+        
         
         y = th.sum(x_out*x_complex, axis = 1)
         y = th.view_as_real(y)
             
         return y
+
+
+    def forward_symb(self, x):
+        Ntaps = self.width[0]
+        x = x.cpu().numpy()
+        
+        x_list = [ x[:,i].reshape(-1,1) for i in range(Ntaps) ]     
+        
+        pred_symb = np.hstack([self.y_func_list[i](x_list) for i in range(Ntaps)])
+        pred_symb = th.from_numpy(pred_symb).to(self.device)
+        
+        return pred_symb
+
+
+    def set_symb(self, weight_simple = 0.5):
+        
+        lib = ['x', 'x^2', 'x^3', 'x^4', 'x^5', 'sinh', 'exp', 'tanh', 'sin', 'abs']
+        kn.add_symbolic('sinh', th.sinh, c=3)
+        
+        self.KAN.auto_symbolic(lib = lib, verbose = 0, weight_simple = weight_simple)
+        self.symb = True
+        
+        Ntaps = self.width[0]
+        self.y_symb_list = []
+        self.y_func_list = []
+        
+        x_var_list = [f"x_{i+1}" for i in range(Ntaps)]
+        
+        for i in range(Ntaps):
+            self.y_symb_list.append(kn.ex_round(self.KAN.symbolic_formula()[0][i], 4))
+            self.y_func_list.append(lambdify([ x_var_list ], self.y_symb_list[i]))
+        
+        
+    def get_symb(self):
+        return (self.y_symb_list, self.y_func_list)
+
 
     def update_grid(self, x):
         batch_size = x.shape[0]
@@ -659,3 +682,45 @@ def fitFilterNN(
             
 
     return y
+
+
+
+def fitFilterKAN_symb(
+    sig, model, Ntaps, K, SpS=1, batchSize=100, augment=False, predict=True, prgsBar=False
+):
+    sigPad = th.nn.functional.pad(sig, (Ntaps // 2, Ntaps // 2), "constant", 0)
+
+    numSymb = len(sig) // SpS
+    numBatches = numSymb // batchSize
+    
+    indTaps = th.arange(0, Ntaps, dtype=th.int64)
+    y = np.zeros(numSymb, dtype=np.complex64)
+
+    if augment:
+        sigPad = augmentFeatures(sigPad, K)
+    else:
+        sigPad = th.view_as_real(sigPad).to(th.float32)
+
+    for k in tqdm(range(numBatches), disable = not (prgsBar)):
+        start_idx = k * batchSize
+        end_idx = (k + 1) * batchSize
+
+        sampleInd = th.arange(start_idx, end_idx, dtype=th.int64)
+        indIn = (
+            indTaps + sampleInd[:, None] * SpS
+        )  # Broadcasting to avoid nested loops
+
+        x = sigPad[indIn.flatten(), :].reshape(
+            batchSize, -1
+        )  # Flattening and reshaping
+        
+        x = x.cpu().numpy()
+        
+        x_list = [ x[:,i] for i in range(2*Ntaps) ]
+        
+        y[sampleInd] = model[0](x_list) + 1j*model[1](x_list)  
+    
+    y = th.from_numpy(y).to(sig.device).type(th.complex64)
+    
+    return y
+
