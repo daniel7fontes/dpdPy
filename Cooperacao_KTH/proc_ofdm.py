@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ======================================================================
-Function to process the experimental data for DPD
+Functions to process the experimental data for DPD
 ======================================================================
 """
 
@@ -9,7 +9,7 @@ import numpy as np
 import torch as th
 import matplotlib.pyplot as plt
 
-import hdf5storage
+#import hdf5storage
 
 from datetime               import datetime
 from scipy.signal           import hilbert, firwin
@@ -296,6 +296,8 @@ def rx_OFDM(sigRx_RF, sigTx, paramOFDM, lpf = False, bw = 75e6, plot = False):
     
     sigRx : Complex-valued array representing the demodulated basebad OFDM signal.
     
+    frames_rx : Real-valued array containing the indexes of received OFDM frames
+    
     """
     
     Nfft = getattr(paramOFDM, "Nfft", 512)
@@ -335,34 +337,37 @@ def rx_OFDM(sigRx_RF, sigTx, paramOFDM, lpf = False, bw = 75e6, plot = False):
     f1 = fc - 1.5*Rs
     f2 = fc + 1.5*Rs
     hbp_RF = firwin(numtaps, (f1, f2), pass_zero = 'bandpass', fs = Fawg)
-
+    
     sigRx_RF = firFilter(hbp_RF, sigRx_RF)
-
+    
     if plot:
         print("Spectrum after filtering the replicated spectrum from resampling")
         plot_spec(sigRx_RF, Fawg, xlim = 10e9)
-
+    
     # Downconversion
     t = np.arange(0, sigRx_RF.size)*1/Fawg
     sigRx = hilbert(sigRx_RF)*np.exp(-1j*2*pi*fc*t)
-
+    
     if plot:
         print("Spectrum after downconversion")
         plot_spec(sigRx, Fawg, xlim = 0.25e9)
-
+    
     sigRx = pnorm(sigRx)
     
-    # Matching the array sizes for delay correction
-    samples_per_frame = int(Fawg/Rs) * (Nfft + G)
-    numOFDMframes_rx  = sigRx.size//samples_per_frame
+    samples_per_frame = SpS * (Nfft + G)
+    frames_rx = get_received_frames(sigRx, sigTx, samples_per_frame, paramOFDM.numOFDMframes)
+    numOFDMframes_rx = frames_rx.size
     
-    diff_samples = np.abs(sigRx.size - sigTx.size)
-
-    if sigRx.size < sigTx.size:
+    sigTx_sync = sync_tx_frames(sigTx, frames_rx, samples_per_frame, paramOFDM.numOFDMframes)
+    
+    # Matching the array sizes for delay correction
+    diff_samples = np.abs(sigRx.size - sigTx_sync.size)
+    
+    if sigRx.size < sigTx_sync.size:
         sigRx = np.pad(sigRx, (0, diff_samples))
     else:
-        sigTx = np.pad(sigTx, (0, diff_samples))
-
+        sigTx_sync = np.pad(sigTx_sync, (0, diff_samples))
+    
     # Low pass filtering
     if lpf:
         hlp = firwin(numtaps, bw, fs = Fawg)
@@ -372,23 +377,21 @@ def rx_OFDM(sigRx_RF, sigTx, paramOFDM, lpf = False, bw = 75e6, plot = False):
             print("Spectrum after low pass filtering")
             plot_spec(sigRx, Fawg, xlim = 0.25e9)
     
-    delay = finddelay(sigRx, sigTx)
+    delay = finddelay(sigRx, sigTx_sync)
     sigRx = np.roll(sigRx, -delay)
     
     # Phase correction
-    samples_per_frame  = SpS * (Nfft + G)
-    
-    sigTx_par = np.reshape(sigTx[0:numOFDMframes_rx*samples_per_frame], (numOFDMframes_rx, samples_per_frame))        
-    sigRx_par = np.reshape(sigRx[0:numOFDMframes_rx*samples_per_frame],  (numOFDMframes_rx, samples_per_frame))
+    sigTx_sync_par = np.reshape(sigTx_sync[0:numOFDMframes_rx*samples_per_frame], (numOFDMframes_rx, samples_per_frame))        
+    sigRx_par      = np.reshape(sigRx[0:numOFDMframes_rx*samples_per_frame], (numOFDMframes_rx, samples_per_frame))
     
     for frame in range(numOFDMframes_rx):
-        rot   = np.mean(sigTx_par[frame,:]/sigRx_par[frame, :])
+        rot   = np.mean(sigTx_sync_par[frame,:]/sigRx_par[frame, :])
         sigRx_par[frame, :] = rot/np.abs(rot)*sigRx_par[frame, :]
     
     sigRx = sigRx_par.ravel()
         
     if plot:
-        plot_sig([sigTx, sigRx], Fs = Fawg, labels = ["Tx", "Rx"], indx = np.arange(0, 10_000))
+        plot_sig([sigTx_sync, sigRx], Fs = Fawg, labels = ["Tx", "Rx"], indx = np.arange(0, 10_000))
 
     # Decimation and symbols extraction
     symbRx_OFDM = sigRx.copy()[0::SpS][0:numOFDMframes_rx*(Nfft + G)]
@@ -396,8 +399,39 @@ def rx_OFDM(sigRx_RF, sigTx, paramOFDM, lpf = False, bw = 75e6, plot = False):
     symbRx = demodulateOFDM(symbRx_OFDM, paramOFDM)
     symbRx = pnorm(symbRx)
     
-    return symbRx, sigRx
+    return symbRx, sigRx, frames_rx
+        
+
+def get_received_frames(sigRx, sigTx, samples_per_frame, numOFDMframes_tx):
+    frames_rx = []
+    sigTx_par = sigTx.reshape((numOFDMframes_tx, samples_per_frame))
     
+    pad_len = np.abs(sigRx.size - samples_per_frame)
+    delays  = np.zeros(numOFDMframes_tx)
+    
+    for i in range(numOFDMframes_tx):
+        delays[i] = finddelay( sigRx, np.pad(sigTx_par[i,:], (0, pad_len)))
+    
+    for i in range(delays.size - 1):
+        delta = np.abs(delays[i] - delays[i+1])
+        if delays[i] > 0 and ( delta < (samples_per_frame+100) and delta > (samples_per_frame-100) ):
+            frames_rx.append(i)
+
+    return np.array(frames_rx)
+
+
+def sync_tx_frames(sigTx, frames_rx, samples_per_frame, numOFDMframes):
+    # Select from the Tx frames only the received ones
+    sigTx_par  = np.reshape(sigTx, (numOFDMframes, samples_per_frame))        
+    sigTx_sync = []
+    
+    for f in frames_rx:
+        sigTx_sync.append(sigTx_par[f,:].ravel())
+    
+    sigTx_sync = np.array(sigTx_sync).ravel()
+    
+    return sigTx_sync
+
 
 def prepare_data_training(sigTx, sigRx, SpS_in, SpS_out, DPD_model, paramOFDM, device = "cpu"):
     Nfft = paramOFDM.Nfft
