@@ -308,10 +308,6 @@ class ETDNN(nn.Module):
         return y
 
 
-#x = x.cpu().numpy()
-#x_list = [ x[:,i] for i in range(2*Ntaps) ]
-#y[sampleInd] = model[0](x_list) + 1j*model[1](x_list)  
-
 class EKAN(nn.Module):
     def __init__(self, layer_sizes, grid, k, seed, device):
         super(EKAN, self).__init__()
@@ -333,12 +329,10 @@ class EKAN(nn.Module):
         x_complex = th.view_as_complex(x.reshape((batch_size, Ntaps, 2)))
         x_out     = th.abs(x_complex)
         
-        
         if not(self.symb):
             x_out = self.KAN.forward(x_out)
         else:
             x_out = self.forward_symb(x_out)
-        
         
         y = th.sum(x_out*x_complex, axis = 1)
         y = th.view_as_real(y)
@@ -390,7 +384,6 @@ class EKAN(nn.Module):
         
         self.KAN.update_grid(x_out)
         
-
 
 def generate_one_hot_vectors(class_ids, M):
     """
