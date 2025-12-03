@@ -9,11 +9,12 @@ import numpy as np
 import torch as th
 import kan   as kn
 
+from functools       import partial
+from sympy           import lambdify
 from tqdm.notebook   import tqdm
 from torch           import nn
 
-from optic_private.torchDSP   import pnorm
-from optic_private.torchUtils import memoryLessDataSet, MLP, ETDNN, EKAN, slidingWindowDataSet, fitFilterNN
+from dpd.torchUtils  import memoryLessDataSet, MLP, ETDNN, ETDKAN, slidingWindowDataSet, fitFilterNN, pnorm
 
 def NN_training(sigIn, sigRef, param):
     
@@ -246,7 +247,6 @@ def createDatasets(
     for data, label in test_dataset:
         test_inputs = th.cat((test_inputs, data.reshape(1, -1).to(device)), dim = 0)
         test_labels = th.cat((test_labels, label.reshape(1, -1).to(device)), dim = 0)
-
     
     batch_test = batch_size if batch_size <= test_inputs.shape[0] else test_inputs.shape[0]
     test_dataloader = batch_data(test_inputs, test_labels, batch_test, shuffle)
@@ -257,14 +257,30 @@ def createDatasets(
 def custom_prune(model, node_th=1e-2, edge_th=3e-2):
     model.attribute()
     model.prune_edge(edge_th, log_history=False)
-    #model.forward(model.cache_data)
+    model.forward(model.cache_data)
     
     model.attribute()
-    #model.log_history('prune')
+    model.log_history('prune')
     
     model = model.prune_node(node_th, log_history=False)
     
     return model
+
+
+def get_symb_kan(model, Ntaps, weight_simple = 0.5):
+    lib = ['x', 'x^2', 'x^3', 'x^4', 'x^5', 'sinh', 'exp', 'tanh', 'sin', 'abs']
+    kn.add_symbolic('sinh', th.sinh, c=3)
+    
+    model.auto_symbolic(lib = lib, verbose = 0, weight_simple = weight_simple)
+
+    y1_symb = kn.ex_round(model.symbolic_formula()[0][0], 4)
+    y2_symb = kn.ex_round(model.symbolic_formula()[0][1], 4)
+
+    x_var_list = [f"x_{i+1}" for i in range(Ntaps)]
+    y1_func = lambdify([ x_var_list ], y1_symb)
+    y2_func = lambdify([ x_var_list ], y2_symb)
+    
+    return (y1_symb, y2_symb), (y1_func, y2_func)
 
 
 def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
@@ -298,7 +314,7 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
     if not(envelope):
         DPD_model = kn.KAN(width = layers, grid = grid, k = k, seed = seed, device = device, auto_save=False)
     else:
-        DPD_model = EKAN(layers, grid, k, seed, device)
+        DPD_model = ETDKAN(layers, grid, k, seed, device)
     
     loss_fn = nn.MSELoss()
     optimizer = th.optim.Adam(DPD_model.parameters(), lr = lr)
@@ -372,7 +388,7 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']/1.25
             
-            if t % 50 == 0:
+            if (t+1) % 50 == 0:
                 DPD_model.update_grid(X)
     
         
@@ -383,7 +399,6 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
         numBatches_test  = len(test_dataloader)
         
         for t in tqdm(range(epochs), disable = not(pgrsBar)):             
-            
             # Training
             DPD_model.train()
             trainLoss[t] = 0
@@ -405,9 +420,6 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
             
             trainLoss[t] /= numBatches_train
             
-            if trainLoss[t] > 10:
-                break
-            
             # Validation
             DPD_model.eval()
             testLoss[t] = 0
@@ -427,15 +439,135 @@ def KAN_training(sigIn, sigRef, param, RoFChannel_model = None):
             # Pruning, if indicated
             if t in pruning_epochs:
                 if envelope:
-                    DPD_model.KAN = custom_prune(DPD_model.KAN)
+                    DPD_model.set_symb()
+                    for g in optimizer.param_groups:
+                        g['lr'] = 1e-5
+                    
                 else:
                     DPD_model = custom_prune(DPD_model)
             
-            if t % 50 == 0:
-                DPD_model.update_grid(X)
+            #if t % 50 == 0:
+            #    DPD_model.update_grid(X)
     
             if (t+1)%100 == 0:
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']/2
         
     return DPD_model, trainLoss, testLoss
+
+
+def kan_loss(model, input_data, label_data, loss_fn):
+    
+    with th.no_grad():
+        predictions = model(input_data)
+        loss = loss_fn(predictions, label_data)
+        
+    return loss
+
+
+def KAN_training_with_pykan(sigIn, sigRef, param, RoFChannel_model = None):
+    
+    layers        = param.layers
+    k             = param.k
+    grid          = param.grid
+    
+    divByL        = param.divByL
+    trainTestFrac = param.trainTestFrac
+    batch_size    = param.batch_size
+    shuffle       = param.shuffle
+    includeMemory = param.includeMemory
+    Ntaps         = param.Ntaps
+    K             = param.K
+    augment       = param.augment
+    
+    lr            = param.lr
+    steps         = param.steps
+    
+    lamb          = param.lamb
+    seed          = param.seed
+    device        = param.device
+    
+    # Define neural network (KAN) model
+    DPD_model = kn.KAN(width = layers, grid = grid, k = k, seed = seed, device = device, auto_save = False)
+    
+    loss_fn = nn.MSELoss()
+    dataloader = createDatasets_for_pykan(sigRef, sigIn, divByL, trainTestFrac,\
+                                                                 batch_size, includeMemory, Ntaps, K, device, shuffle = shuffle, augment=augment)
+    
+    train_loss = partial(kan_loss, DPD_model, dataloader["train_input"], dataloader["train_label"], loss_fn)
+    test_loss  = partial(kan_loss, DPD_model, dataloader["test_input"], dataloader["test_label"], loss_fn)
+    
+    train_loss.__name__ = "train_loss"
+    test_loss.__name__  = "test_loss"
+    
+    results = DPD_model.fit(dataloader, opt = "Adam", steps = steps, lamb = lamb, loss_fn = loss_fn, lr = lr, batch = batch_size, metrics = (train_loss, test_loss))
+    
+    trainLoss = results["train_loss"]
+    testLoss  = results["test_loss"]
+    
+    return DPD_model, trainLoss, testLoss
+
+
+def createDatasets_for_pykan(
+    sigIn,
+    sigRef,
+    divByL,
+    trainTestFrac,
+    batch_size,
+    includeMemory,
+    Ntaps,
+    K,
+    device,
+    shuffle = False,
+    augment = False
+):
+    sig_in  = pnorm(sigIn[0 : len(sigIn) // divByL])
+    sig_ref = pnorm(sigRef[0 : len(sigRef) // divByL])
+
+    # Create the dataset
+    indx_train = th.arange(0, int(trainTestFrac * len(sig_in)))
+    indx_test = th.arange(int(trainTestFrac * len(sig_in)), len(sig_in))
+
+    sig_train = sig_in[indx_train]  # get signal amplitude samples (L,)
+    sig_test  = sig_in[indx_test]  # get signal amplitude samples (L,)
+
+    indy_train = th.arange(0, int(trainTestFrac * len(sig_ref)))
+    indy_test = th.arange(int(trainTestFrac * len(sig_ref)), len(sig_ref))
+       
+    if includeMemory:
+        train_dataset = slidingWindowDataSet(
+            sig_ref[indy_train], sig_train, Ntaps, K, augment=augment
+        )
+        test_dataset = slidingWindowDataSet(
+            sig_ref[indy_test], sig_test, Ntaps, K, augment=augment
+        )
+
+    else:
+        train_dataset = memoryLessDataSet(sig_ref[indy_train], sig_train, K, augment = augment)
+        test_dataset  = memoryLessDataSet(sig_ref[indy_test], sig_test, K, augment = augment)
+        
+    
+    # Train dataloader
+    train_inputs = th.empty((0, (2+K)*Ntaps), device = device) if augment else th.empty((0, 2*Ntaps), device = device)
+    train_labels = th.empty((0, 2), device = device)
+    
+    for data, label in train_dataset:
+        train_inputs = th.cat((train_inputs, data.reshape(1, -1).to(device)), dim = 0)
+        train_labels = th.cat((train_labels, label.reshape(1, -1).to(device)), dim = 0)
+    
+    # Test dataloader
+    test_inputs = th.empty((0, (2+K)*Ntaps), device = device) if augment else th.empty((0, 2*Ntaps), device = device)
+    test_labels = th.empty((0, 2), device = device)
+     
+    for data, label in test_dataset:
+        test_inputs = th.cat((test_inputs, data.reshape(1, -1).to(device)), dim = 0)
+        test_labels = th.cat((test_labels, label.reshape(1, -1).to(device)), dim = 0)
+    
+    dataloader = {}
+    dataloader["train_input"] = train_inputs
+    dataloader["train_label"] = train_labels
+    dataloader["test_input"]  = test_inputs
+    dataloader["test_label"]  = test_labels
+    
+    return dataloader
+

@@ -1,0 +1,13 @@
+
+    sampler: TPESampler 
+    ntrials: 500 
+    
+    Hyperparameters range: 
+    Ntaps: 2 - 10 (step of 2) 
+    K: 1 - 3 
+    N1: 5 - 50 
+    N2: 5 - 50 
+    Nlayers: 1 - 2 
+    
+    Obs.: EVM and NFLOP as objective functions
+    

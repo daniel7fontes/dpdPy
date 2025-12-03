@@ -1,3 +1,0 @@
-ARoF system with 5dBm in PA and 17 dBm in MZM. 
-
-ETDNN network with complex weights varying Ntaps and N1

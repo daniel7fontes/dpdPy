@@ -59,6 +59,37 @@ def calcPAPR(signal):
     
     return 10 * np.log10(papr)
 
+def calcACLR(Psd, freqs, B, offset):
+    """
+    Calculate the Adjacent Channel Leakage Ratio (ACLR).
+
+    Parameters
+    ----------
+    Psd : numpy.ndarray
+        Power spectral density (Psd) values.
+    freqs : numpy.ndarray
+        Frequency values corresponding to the Psd array.
+    B : float
+        Bandwidth of the adjacent channel.
+    offset : float
+             frequency offset to start adjacent channel  
+
+    Returns
+    -------
+    float
+        Calculated ACLR value in decibels (dB)
+    """
+    df = freqs[1] - freqs[0]
+    
+    Pin = np.sum(Psd[freqs >= - B] * df) - np.sum(Psd[freqs >= B] * df)
+    
+    Pout1 = np.sum(Psd[ freqs <= -B - offset] * df) - np.sum(Psd[ freqs <= -3*B - offset] * df)
+    Pout2 = np.sum(Psd[ freqs >= B + offset] * df) - np.sum(Psd[ freqs >= 3*B + offset] * df)
+
+    Pout = np.max([Pout1, Pout2])
+    
+    return 10*np.log10(Pout / Pin)
+
 
 def calcSNR_per_carrier(symbTx, symbRx, Ns):
     rx = np.reshape(symbRx, (-1, Ns))

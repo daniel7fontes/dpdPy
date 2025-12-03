@@ -1,1 +1,0 @@
-In this study, the Nlayers, Ntaps, K and Neurons per layer are the optimized parameters.

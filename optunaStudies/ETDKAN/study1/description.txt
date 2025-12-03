@@ -1,0 +1,12 @@
+
+    sampler: GridSampler 
+    ntrials: 500 
+    
+    Hyperparameters range: 
+    Ntaps: 2 - 8 (step of 2) 
+    k: 2 - 6 
+    grid: 2 - 6
+    N1: 1 - 5 
+    
+    Obs.: EVM and NFLOP as objective functions
+    
