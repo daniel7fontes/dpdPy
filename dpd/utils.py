@@ -6,6 +6,7 @@ Funções verificação de desempenho da DPD
 """
 
 import numpy as np
+from optic.comm.metrics import calcEVM
 from scipy.constants import pi
 
 
@@ -121,3 +122,16 @@ def clip_complex(sig, max_amp):
             sig[i] = sig[i] * max_amp / np.abs(sig[i])
     
     return sig
+
+
+def calcEVM_per_carrier(symbTx, symbRx, Ni, nFrames, modOrder = 64, modType = "qam", plot = False):
+    
+    tx = np.reshape(symbTx[0:nFrames*Ni], (nFrames, Ni))
+    rx = np.reshape(symbRx[0:nFrames*Ni], (nFrames, Ni))
+    
+    EVM_per_carrier = np.zeros(Ni)
+    
+    for k in range(Ni):
+        EVM_per_carrier[k] = np.sqrt(calcEVM(rx[:,k], modOrder, modType, tx[:,k])) * 100
+    
+    return EVM_per_carrier
