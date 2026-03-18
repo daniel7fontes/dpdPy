@@ -92,28 +92,6 @@ def calcACLR(Psd, freqs, B, offset):
     return 10*np.log10(Pout / Pin)
 
 
-def calcSNR_per_carrier(symbTx, symbRx, Ns):
-    rx = np.reshape(symbRx, (-1, Ns))
-    tx = np.reshape(symbTx.copy(), (-1, Ns))
-    
-    SNR_per_carrier = np.zeros(Ns)
-    
-    for k in range(Ns):
-        SNR_per_carrier[k] = 10*np.log10(np.mean(np.abs((tx[:, k]))**2) / np.mean(np.abs((rx[:, k] - tx[:, k]))**2))
-
-    return SNR_per_carrier
-
-
-def power_amplifier(x, g=16, σ=1.1, c=1.9, α=-345, β=0.17, q=4):
-    abs_x = np.abs(x)
-    phi_x = np.angle(x)
-
-    abs_y = g * abs_x / (1 + np.abs(g * abs_x / c)**(2 * σ) ) ** (1 / (2 * σ))
-    phi_y = α * abs_x**q / (1 + (abs_x / β) ** q) * (pi / 180)
-
-    return abs_y * np.exp(1j * (phi_x + phi_y))
-
-
 def clip_complex(sig, max_amp):
     clip_pos = np.where( np.abs(sig) > max_amp )[0]
     
@@ -122,16 +100,3 @@ def clip_complex(sig, max_amp):
             sig[i] = sig[i] * max_amp / np.abs(sig[i])
     
     return sig
-
-
-def calcEVM_per_carrier(symbTx, symbRx, Ni, nFrames, modOrder = 64, modType = "qam", plot = False):
-    
-    tx = np.reshape(symbTx[0:nFrames*Ni], (nFrames, Ni))
-    rx = np.reshape(symbRx[0:nFrames*Ni], (nFrames, Ni))
-    
-    EVM_per_carrier = np.zeros(Ni)
-    
-    for k in range(Ni):
-        EVM_per_carrier[k] = np.sqrt(calcEVM(rx[:,k], modOrder, modType, tx[:,k])) * 100
-    
-    return EVM_per_carrier

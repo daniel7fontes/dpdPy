@@ -15,16 +15,17 @@ from dpd.models          import ARVTDNN, ETDNN, ETDKAN, MP
 
 #%%
 #To-do list
-# 1 - Destinar corretamente as variáveis divByL, trainTestFrac, batchSize, shuffle, adaptLearningRatio X
-# 2 - Adicionar modelo de MP no models X
-# 3 - Adaptar funções de MP X
-# 4 - Checar funções e formação de vetores para MP X
-# 5 - Criar exemplo de DPD e idenfiicador
-# 6 - Adicionar modelos de ARVTDKAN
-# 7 - Adicionar sumário de funções
-# 8 - Adicionar comentários e descrições de funções
-# 9 - Adicionar método getNFLOP dentro de cada modelo X
-# 10 - Adicionar métodos save e load nos modelos X
+
+### Mais importantes
+# - Criar exemplo de DPD e idenficador
+# - Preparar função para modelo geral do canal RoF
+# - Preparar função para modelo de canal com PA apenas
+# - Adicionar outros modelos para o amplificador (Saleh, Rapp)
+
+### Menos importantes
+# - Adicionar modelos de ARVTDKAN
+# - Adicionar sumário de funções
+# - Adicionar comentários e descrições de funções
 
 #%%
 
@@ -168,10 +169,10 @@ def trainNN(sigIn, sigRef, paramTrain, paramModel):
                 for g in optimizer.param_groups:
                     g['lr'] = g['lr']/2
                     
-        if model == "ETDKAN":
+        if model_name == "ETDKAN":
             symbolicEpoch = paramTrain.symbolicEpoch
             
-            if t == symbolicEpoch:
+            if t == symbolicEpoch - 1:
                 model.set_symb()
                 
                 for g in optimizer.param_groups:

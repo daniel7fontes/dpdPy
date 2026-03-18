@@ -1,13 +1,10 @@
-import torch as th
-import kan as kn
-from torch import nn
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
-from numba import njit
-import logging as logg
-from tqdm import tqdm
-from sympy import lambdify
 import contextlib
+import numpy as np
+import torch as th
+
+from torch.utils.data import Dataset
+from numba import njit
+from tqdm  import tqdm
 
 
 class slidingWindowDataSet(Dataset):
@@ -44,7 +41,9 @@ class slidingWindowDataSet(Dataset):
         super(slidingWindowDataSet, self).__init__()
         self.Ntaps = Ntaps
         self.SpS = SpS
+        
         x_pad = th.nn.functional.pad(x, (Ntaps // 2, Ntaps // 2), "constant", 0)
+        
         if augment:
             self.x = augmentFeatures(x_pad, K).to(th.float32)
         else:
@@ -63,6 +62,7 @@ class slidingWindowDataSet(Dataset):
         Returns:
             tuple: A tuple containing the input and target tensors.
         """
+        
         center_idx = idx * self.SpS + self.Ntaps // 2
         start_idx = center_idx - self.Ntaps // 2
         end_idx = center_idx + self.Ntaps // 2
@@ -114,101 +114,44 @@ def augmentFeatures(x, K):
     return th.stack(x_list, dim = 1)
     
 
-class memoryLessDataSet(Dataset):
-    """
-    A custom complex2real memoryless dataset class
-
-    Args:
-        signal (numpy.ndarray): Input signal.
-        symbols (numpy.ndarray): Array of corresponding symbols.
-
-    Attributes:
-        signal (numpy.ndarray): Input signal.
-        symbols (numpy.ndarray): Array of corresponding symbols.
-
-    Methods:
-        __getitem__(self, idx): Retrieves the item at the specified index.
-        __len__(self): Returns the total number of items in the dataset.
-    """
-
-    def __init__(self, signal, symbols, K, augment=False):
-        """
-        Initialize the memoryLessDataSet.
-
-        Args:
-            signal (numpy.ndarray): Input signal.
-            symbols (numpy.ndarray): Array of corresponding symbols.
-        """
-        super(memoryLessDataSet, self).__init__()
-        self.symbols = th.view_as_real(symbols)
-        self.augment = augment
-
-        if augment:
-            self.signal = augmentFeatures(signal, K)
-        else:
-            self.signal = th.view_as_real(signal)
-
-    def __getitem__(self, idx):
-        """
-        Retrieves the item at the specified index.
-
-        Args:
-            idx (int): Index of the item.
-
-        Returns:
-            tuple: A tuple containing the input and target tensors.
-        """
-        inputs = self.signal[idx, :].to(th.float32)
-
-        target = self.symbols[idx, :].to(th.float32)
-
-        return inputs, target
-
-    def __len__(self):
-        """
-        Returns the total number of items in the dataset.
-
-        Returns:
-            int: Total number of items in the dataset.
-        """
-        return len(self.signal)
-
-
-def fitFilterNN(
-    sig, model, Ntaps, K, SpS=1, batchSize=100, augment=False, predict=True, prgsBar=False
-):
-    sigPad = th.nn.functional.pad(sig, (Ntaps // 2, Ntaps // 2), "constant", 0)
-
-    model.eval() if predict else model.train()
-    numSymb = len(sig) // SpS
-    numBatches = numSymb // batchSize
+def fitFilterNN(x, model, paramTrain, paramModel, batchSize = 100, predict = True):
     
-    indTaps = th.arange(0, Ntaps, dtype=th.int64)
-    y = th.zeros(numSymb, dtype=th.complex64, device=sig.device)
+    model_name = paramModel.model_name
+    M = paramModel.M 
+    
+    if model_name == "ARVTDNN":
+        K = paramModel.K
+        augment = True
+    else:
+        K = 0
+        augment = False
+    
+    xPad = th.nn.functional.pad(x, ((M+1)//2, (M+1)//2), "constant", 0)
+    
+    model.eval() if predict else model.train()
+    dataSize   = len(x)
+    numBatches = dataSize // batchSize
+    
+    indTaps = th.arange(0, (M + 1), dtype = th.int64)
+    y = th.zeros(dataSize, dtype = th.complex64, device = x.device)
 
     if augment:
-        sigPad = augmentFeatures(sigPad, K)
+        xPad = augmentFeatures(xPad, K)
     else:
-        sigPad = th.view_as_real(sigPad).to(th.float32)
+        xPad = th.view_as_real(xPad).to(th.float32)
 
     with th.no_grad() if predict else contextlib.nullcontext():
-        for k in tqdm(range(numBatches), disable=not (prgsBar)):
+        for k in range(numBatches):
             start_idx = k * batchSize
-            end_idx = (k + 1) * batchSize
-
+            end_idx   = (k + 1) * batchSize
+            
             sampleInd = th.arange(start_idx, end_idx, dtype=th.int64)
-            indIn = (
-                indTaps + sampleInd[:, None] * SpS
-            )  # Broadcasting to avoid nested loops
+            indIn = (indTaps + sampleInd[:, None])  # Broadcasting to avoid nested loops
 
-            x = sigPad[indIn.flatten(), :].reshape(
-                batchSize, -1
-            )  # Flattening and reshaping
+            x = xPad[indIn.flatten(), :].reshape(batchSize, -1)  # Flattening and reshaping
             
             y[sampleInd] = th.view_as_complex(model(x)).squeeze(0)
-            #y[sampleInd] = th.view_as_complex(model(x.unsqueeze(1))).squeeze(1)
             
-
     return y
 
 
