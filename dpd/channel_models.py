@@ -18,7 +18,7 @@ from optic.utils              import dBm2W
 def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     paramMZM     = paramRoF.paramMZM
     paramRF      = paramRoF.paramRF
-    paramChannel = paramRoF.paramChannel
+    paramFiber = paramRoF.paramFiber
     paramPD      = paramRoF.paramPD
     paramPA      = paramRoF.paramPA
     
@@ -28,9 +28,11 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     
     # 1 - Generating RF signal
     t = np.arange(0, len(sigTx))*1/Fs
-    
     sigTx_RF = np.real( sigTx * np.exp(1j * 2*pi * fc_e * t) )
+    gain_pre_MZM = 10**( (paramMZM.Pin_MZM - 10*np.log10(1e3*signal_power(sigTx_RF)) )/10)
     
+    sigTx_RF = np.sqrt(gain_pre_MZM) * sigTx_RF
+        
     # 2 - Optical modulation with MZM
     Ai     = np.sqrt(dBm2W(paramMZM.P_laser)) * np.ones(sigTx_RF.size)
     sigTxo = mzm(Ai, sigTx_RF, paramMZM)
@@ -39,18 +41,18 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     hopt_tx = firwin(filter_numtaps, fc_e + 2*bw, fs = Fs)
     sigTxo  = np.sqrt(signal_power(sigTxo)) * pnorm(firFilter(hopt_tx, sigTxo))
     
-    sigRxo = linearFiberChannel(sigTxo, paramChannel)
-    
+    sigRxo = linearFiberChannel(sigTxo, paramFiber)
+        
     # 4 - Photodetection
     I_Rx = photodiode(sigRxo, paramPD)
     I_Rx -= I_Rx.mean()
     
     # 5 - Bandpass filter and demodulation
     hbp_RF = firwin(filter_numtaps, (fc_e - 2*bw, fc_e + 2*bw), pass_zero = 'bandpass', fs = Fs)
-    I_RF = firFilter(hbp_RF, I_Rx)
-    sigRx = hilbert(I_RF)*np.exp(-1j * 2*pi * fc_e * t)
+    I_RF = firFilter(hbp_RF, I_Rx)    
+    sigRx = hilbert(I_RF)*np.exp(-1j * 2*pi * fc_e * t) * 1e3
     
-    # 6 - Power amplifier
+    # 6 - Power amplifier    
     sigRx = power_amplifier(sigRx, paramPA)
     sigRx = pnorm(sigRx)
     
