@@ -135,7 +135,7 @@ def limiter(x, x_sat, y_sat):
     y = g*x
     
     if len(sat_points) != 0:
-        y[sat_points] = y_sat * np.angle(1j*np.angle(y[sat_points]))
+        y[sat_points] = y_sat * np.exp(1j*np.angle(y[sat_points]))
         
     return y
     
