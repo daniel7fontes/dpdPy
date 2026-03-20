@@ -6,8 +6,9 @@ Created on Wed Mar 18 10:54:17 2026
 """
 
 import numpy as np
-from   scipy.constants import pi
-from scipy.signal      import firwin, hilbert
+
+from scipy.constants import pi
+from scipy.signal    import firwin, hilbert
 
 from optic.models.channels    import linearFiberChannel
 from optic.models.devices     import mzm, photodiode
@@ -126,7 +127,7 @@ def modified_rapp(x, g = 16, x_sat = 1.9, sigma_p = 1.1, alpha = -345, beta = 0.
     return G * np.exp(1j*Psi) * x
     
 
-def limiter(x, y_sat, x_sat):
+def limiter(x, x_sat, y_sat):
     g = y_sat / x_sat
     
     sat_points = np.where( np.abs(x) > x_sat )[0] 

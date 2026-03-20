@@ -5,94 +5,85 @@ Funções verificação de desempenho da DPD
 ======================================================================
 """
 
+import contextlib
 import numpy as np
 import torch as th
 
+from numba import njit
+
 from scipy.signal      import firwin
 from optic.dsp.core    import clockSamplingInterp, signal_power, pnorm
-from dpd.torchUtils    import fitFilterNN, filterMP
 from optic.dsp.coreGPU import firFilter
 
-def calcMSE(x, y):
-    """
-    Estimativa do Erro Médio Quadrático entre os sinais de entrada x e de saída y
+from dpd.train         import augmentFeatures
+
+
+def fitFilterNN(x, model, paramTrain, paramModel, batchSize = 100, predict = True):
     
-    Parameters
-    ----------
-    x : np.array
-        Sinal de entrada do sistema
-    y : np.array
-        Sinal de saída do sistema
+    model_name = paramModel.model_name
+    M = paramModel.M 
+    
+    if model_name == "ARVTDNN":
+        K = paramModel.K
+        augment = True
+    else:
+        K = 0
+        augment = False
+    
+    xPad = th.nn.functional.pad(x, ((M+1)//2, (M+1)//2), "constant", 0)
+    
+    model.eval() if predict else model.train()
+    dataSize   = len(x)
+    numBatches = dataSize // batchSize
+    
+    indTaps = th.arange(0, (M + 1), dtype = th.int64)
+    y = th.zeros(dataSize, dtype = th.complex64, device = x.device)
+
+    if augment:
+        xPad = augmentFeatures(xPad, K)
+    else:
+        xPad = th.view_as_real(xPad).to(th.float32)
+
+    with th.no_grad() if predict else contextlib.nullcontext():
+        for k in range(numBatches):
+            start_idx = k * batchSize
+            end_idx   = (k + 1) * batchSize
+            
+            sampleInd = th.arange(start_idx, end_idx, dtype=th.int64)
+            indIn = (indTaps + sampleInd[:, None])  # Broadcasting to avoid nested loops
+
+            x = xPad[indIn.flatten(), :].reshape(batchSize, -1)  # Flattening and reshaping
+            
+            y[sampleInd] = th.view_as_complex(model(x)).squeeze(0)
+            
+    return y
+
+
+@njit
+def filterMP(x, w, M, P):
+    dataSize = x.size
+    
+    ind = np.arange(0, M + 1)    
+    y = np.zeros(dataSize, dtype = np.complex128)
+
+    x_window = np.zeros(2 * M + dataSize, dtype=np.complex128)
+    for i in range(dataSize):
+        x_window[i] = x[i]
         
-    Returns
-    -------
-    MSE : float
-          Erro médio quadrático entre x e y [dB]
-    """
-    
-    MSE = np.mean(np.abs(y - x)**2)
-    return 10*np.log10(MSE)
+    xk = np.zeros(P * (M + 1), dtype=np.complex128)
 
-
-def calcNMSE(x, y):
-    """
-    Estimativa do Erro Médio Quadrático Normalizado entre os sinais de entrada x e de saída y
-    
-    Parameters
-    ----------
-    x : np.array
-        Sinal de entrada do sistema
-    y : np.array
-        Sinal de saída do sistema
+    for i in range(dataSize):
+        X = x_window[i - ind]
+        j = 0
         
-    Returns
-    -------
-    NMSE : float
-           Erro médio quadrático normalizado entre x e y [dB]
-    """
-    
-    NMSE = np.mean(np.abs(y - x)**2) / np.mean(np.abs(x)**2)
-    return 10*np.log10(NMSE)
+        for p in range(P):
+            for m in range(M + 1):
+                xk[j] = X[m] * (np.abs(X[m]) ** p)
+                j += 1
+  
+        y[i] = np.dot(xk, np.conj(w))
 
-
-def calcPAPR(signal):
-    peak_power = np.max(np.abs(signal)) ** 2
-    average_power = np.mean(np.abs(signal) ** 2)
-    
-    papr = peak_power / average_power
-    
-    return 10 * np.log10(papr)
-
-def calcACLR(Psd, freqs, B, offset):
-    """
-    Calculate the Adjacent Channel Leakage Ratio (ACLR).
-
-    Parameters
-    ----------
-    Psd : numpy.ndarray
-        Power spectral density (Psd) values.
-    freqs : numpy.ndarray
-        Frequency values corresponding to the Psd array.
-    B : float
-        Bandwidth of the adjacent channel.
-    offset : float
-             frequency offset to start adjacent channel  
-
-    Returns
-    -------
-    float
-        Calculated ACLR value in decibels (dB)
-    """
-    df = freqs[1] - freqs[0]
-    
-    Pin = np.sum(Psd[freqs >= - B] * df) - np.sum(Psd[freqs >= B] * df)
-    
-    Pout1 = np.sum(Psd[ freqs <= -B - offset] * df) - np.sum(Psd[ freqs <= -3*B - offset] * df)
-    Pout2 = np.sum(Psd[ freqs >= B + offset] * df) - np.sum(Psd[ freqs >= 3*B + offset] * df)
-
-    Pout = np.max([Pout1, Pout2])
-    
-    return 10*np.log10(Pout / Pin)
+    return y
 
 
 def applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel):
@@ -119,13 +110,3 @@ def applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel):
     sigTx_DPD = pnorm(sigTx_DPD)
 
     return sigTx_DPD, gain_DPD
-
-
-def clip_complex(sig, max_amp):
-    clip_pos = np.where( np.abs(sig) > max_amp )[0]
-    
-    if (len(clip_pos) != 0):
-        for i in clip_pos:
-            sig[i] = sig[i] * max_amp / np.abs(sig[i])
-    
-    return sig

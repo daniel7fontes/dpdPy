@@ -8,6 +8,7 @@ Funções para geração de figuras associadas à análise de resultados de DPD
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_path = None):
     fig, axs = plt.subplots(figsize = (7, 7))
     
