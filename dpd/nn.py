@@ -11,16 +11,13 @@ import torch as th
 from torch           import nn
 from tqdm.notebook   import tqdm
 from dpd.torchUtils  import createDatasets, slidingWindowMP
-from dpd.models          import ARVTDNN, ETDNN, ETDKAN, MP
+from dpd.models      import ARVTDNN, ETDNN, ETDKAN, MP
 
 #%%
 #To-do list
 
 ### Mais importantes
-# - Criar exemplo de DPD e idenficador
-# - Preparar função para modelo geral do canal RoF
-# - Preparar função para modelo de canal com PA apenas
-# - Adicionar outros modelos para o amplificador (Saleh, Rapp)
+# - Criar exemplo de DPD e idenficador (concluindo)
 
 ### Menos importantes
 # - Adicionar modelos de ARVTDKAN

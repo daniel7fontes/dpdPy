@@ -9,127 +9,82 @@ import numpy as np
 import matplotlib.pyplot as plt
 from optic.comm.metrics import fastBERcalc, calcEVM
 
-def plotDPD_const(symbTx, symbRx, symbRx_DLA, symbRx_ILA, show = False, savefig = False, file_path = None):
+def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_path = None):
+    fig, axs = plt.subplots(figsize = (7, 7))
     
-    fig, axs = plt.subplots(1, 2, figsize = (16, 8))
+    if type(symbRx) == list:
+        for symb in symbRx:
+            axs.plot(symb.real, symb.imag, "o", ms = 1)
+
+    else:
+        axs.plot(symbRx.real, symbRx.imag, "o", ms = 1)
     
-    axs[0].plot(symbRx.real, symbRx.imag, "o", color = "r", ms = 2, label = "Sem DPD")
-    axs[0].plot(symbRx_DLA.real, symbRx_DLA.imag, "o", color = "b", ms = 2, label = "Com DPD")
-    axs[0].plot(symbTx.real, symbTx.imag, "o", color = "k",  ms = 3, label = "SymbTx")
-    axs[0].set_title("DPD - DLA", fontsize = 18)
-    axs[0].set_ylabel("Quadrature - Q")
-    axs[0].set_xlabel("In-Phase - I")
-    axs[0].set_xlim(-1.5, 1.5)
-    axs[0].set_ylim(-1.5, 1.5)
-    axs[0].grid()
+    axs.plot(symbTx.real, symbTx.imag, "o", color = "k",  ms = 3)
+
+    axs.set_ylabel("Quadrature - Q")
+    axs.set_xlabel("In-Phase - I")
+    plt.axis("square")
     
-    axs[1].plot(symbRx.real, symbRx.imag, "o", color = "r", ms = 2, label = "Sem DPD")
-    axs[1].plot(symbRx_ILA.real, symbRx_ILA.imag, "o", color = "b", ms = 2, label = "Com DPD")
-    axs[1].plot(symbTx.real, symbTx.imag, "o", color = "k",  ms = 3, label = "SymbTx")
-    axs[1].set_title("DPD - ILA", fontsize = 18)
-    axs[1].set_ylabel("Quadrature - Q")
-    axs[1].set_xlabel("In-Phase - I")
-    axs[1].set_xlim(-1.5, 1.5)
-    axs[1].set_ylim(-1.5, 1.5)
-    axs[1].grid()
+    axs.set_xlim(-axs_lim, axs_lim)
+    axs.set_ylim(-axs_lim, axs_lim)
+    axs.minorticks_on()
+    axs.tick_params(axis = 'both', top = "True", right = "True", which='minor',  width=1, direction = "in")
+    axs.tick_params(axis = 'both', top = "True", right = "True", which='major',  width=1.5, direction = "in")
+
+    plt.grid()
     
     plt.tight_layout()
-    if savefig:
+    if save:
         plt.savefig(file_path)
     
     if not(show):
         plt.close()
 
 
-def plotDPD_spec(freq, P_sigTx, P_sigRx_PA, P_sigRx_PA_DLA, P_sigRx_PA_ILA, Rs, show = False, savefig = False, file_path = None):    
-    fig, axs = plt.subplots(1, 2, figsize = (16, 6))
+def plotSpec(freq, P_sigTx, P_sigRx, label, x_lim = [-2, 2], y_lim = [-125, -80], freq_unit = "GHz", show = True, save = False, file_path = None):
+    if freq_unit == "THz":
+        freq_norm = 1e12
     
-    axs[0].plot(freq/1e9, 10*np.log10(P_sigTx), color = "k", ls = "-", lw = 2, label = "Tx")
-    axs[0].plot(freq/1e9, 10*np.log10(P_sigRx_PA), color = "r", ls = "--", lw = 2, label = "Sem DPD")
-    axs[0].plot(freq/1e9, 10*np.log10(P_sigRx_PA_DLA), color = "b", ls = "--", lw = 2, label = r"Com DPD-DLA")
-    axs[0].set_title("DPD - DLA", fontsize = 18)
-    axs[0].set_xlim(-1.5*Rs/1e9, 1.5*Rs/1e9)
-    axs[0].set_ylim(-125, -80)
-    axs[0].set_xlabel("f [GHz]")
-    axs[0].set_ylabel("Power Spectral Density [dB/Hz]")
-    axs[0].legend(fontsize = 14, framealpha = 1)
-    axs[0].grid()
+    elif freq_unit == "GHz":
+        freq_norm = 1e9
     
-    axs[1].plot(freq/1e9, 10*np.log10(P_sigTx), color = "k", ls = "-", lw = 2, label = "Tx")
-    axs[1].plot(freq/1e9, 10*np.log10(P_sigRx_PA), color = "r", ls = "--", lw = 2, label = "Sem DPD")
-    axs[1].plot(freq/1e9, 10*np.log10(P_sigRx_PA_ILA), color = "b", ls = "--", lw = 2, label = r"Com DPD-ILA")
-    axs[1].set_title("DPD - ILA", fontsize = 18)
-    axs[1].set_xlim(-1.5*Rs/1e9, 1.5*Rs/1e9)
-    axs[1].set_ylim(-125, -80)
-    axs[1].set_xlabel("f [GHz]")
-    axs[1].set_ylabel("Power Spectral Density [dB/Hz]")
-    axs[1].legend(fontsize = 14, framealpha = 1)
-    axs[1].grid()
+    elif freq_unit == "MHz":
+        freq_norm = 1e6
+        
+    elif freq_unit == "KHz":
+        freq_norm = 1e3
     
+    else:
+        freq_norm = 1
+
+    fig, axs = plt.subplots(1, 1, figsize = (7, 5))
+    axs.plot(freq/freq_norm, 10*np.log10(P_sigTx), lw = 2)
+    
+    if type(P_sigRx) == list:
+        for i, P_sig in enumerate(P_sigRx):
+            axs.plot(freq/freq_norm, 10*np.log10(P_sig), lw = 2, label = label[i])
+
+    else:
+        axs.plot(freq/freq_norm, 10*np.log10(P_sigRx), lw = 2, label = label)
+    
+    
+    axs.set_xlim(x_lim[0], x_lim[1])
+    axs.set_ylim(y_lim[0], y_lim[1])
+    
+    axs.set_ylabel("Power Spectral Density [dB/Hz]")
+    axs.set_xlabel(f"Frequency [{freq_unit}]")
+    
+    axs.minorticks_on()
+    axs.tick_params(axis = 'both', top = "True", right = "True", which='minor',  width=1, direction = "in")
+    axs.tick_params(axis = 'both', top = "True", right = "True", which='major',  width=1.5, direction = "in")
+
+    axs.legend(framealpha = 1)
+    
+    plt.grid()    
     plt.tight_layout()
-    if savefig:
+    
+    if save:
         plt.savefig(file_path)
     
     if not(show):
         plt.close()
-
-
-def plotDPD_SNR(SNR_per_carrier, SNR_per_carrier_DPD, Ns, DPD_type, show = False, savefig = False, file_path = None):    
-    fig, axs = plt.subplots(figsize = (10, 5))
-    
-    axs.plot(SNR_per_carrier, color = "r", label = "Sem DPD")
-    axs.plot(SNR_per_carrier_DPD, color = "b", label = f"Com DPD - {DPD_type}")
-    axs.set_xlim(0, Ns)
-    axs.set_ylabel("SNR [dB]")
-    axs.set_xlabel("Carrier")
-    axs.legend(framealpha = 1, fontsize = 14)
-    axs.grid()
-    plt.tight_layout()
-    
-    if savefig:
-        plt.savefig(file_path)
-    
-    if not(show):
-        plt.close()
-
-
-def calc_per_carrier(symbTx, symbRx, Ni, nFrames, modOrder = 64, modType = "qam", plot = False):
-    
-    tx = np.reshape(symbTx[0:nFrames*Ni], (nFrames, Ni))
-    rx = np.reshape(symbRx[0:nFrames*Ni], (nFrames, Ni))
-    
-    BER_per_carrier = np.zeros(Ni)
-    SNR_per_carrier = np.zeros(Ni)
-    EVM_per_carrier = np.zeros(Ni)
-    
-    for k in range(Ni):
-        BER_per_carrier[k], _, SNR_per_carrier[k] = fastBERcalc(rx[:,k].copy(), tx[:,k].copy(), modOrder, modType)
-        EVM_per_carrier[k] = np.sqrt(calcEVM(rx[:,k], modOrder, modType, tx[:,k])) * 100
-
-    if plot:
-        fig, axs = plt.subplots(1, 3, figsize = (20, 5))
-        
-        axs[0].plot(BER_per_carrier, color = "b")
-        axs[1].plot(SNR_per_carrier, color = "r")
-        axs[2].plot(EVM_per_carrier, color = "g")
-
-        axs[0].set_yscale("log")
-        axs[0].set_xlim(0, Ni)
-        axs[1].set_xlim(0, Ni)
-        axs[2].set_xlim(0, Ni)
-
-        axs[0].set_ylabel("BER")
-        axs[1].set_ylabel("SNR [dB]")
-        axs[2].set_ylabel("EVM$_{RMS}$ [%]")
-        
-        axs[0].set_xlabel("Data carrier")
-        axs[1].set_xlabel("Data carrier")
-        axs[2].set_xlabel("Data carrier")
-        
-        axs[0].grid()
-        axs[1].grid()
-        axs[2].grid()
-        
-        plt.tight_layout()
-    
-    return BER_per_carrier, SNR_per_carrier, EVM_per_carrier

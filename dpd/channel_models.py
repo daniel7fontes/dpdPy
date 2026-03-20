@@ -18,7 +18,7 @@ from optic.utils              import dBm2W
 def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     paramMZM     = paramRoF.paramMZM
     paramRF      = paramRoF.paramRF
-    paramFiber = paramRoF.paramFiber
+    paramFiber   = paramRoF.paramFiber
     paramPD      = paramRoF.paramPD
     paramPA      = paramRoF.paramPA
     
@@ -32,7 +32,8 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     gain_pre_MZM = 10**( (paramMZM.Pin_MZM - 10*np.log10(1e3*signal_power(sigTx_RF)) )/10)
     
     sigTx_RF = np.sqrt(gain_pre_MZM) * sigTx_RF
-        
+    sigTx_RF = np.clip(sigTx_RF, -paramMZM.Vpi/2, paramMZM.Vpi/2)
+
     # 2 - Optical modulation with MZM
     Ai     = np.sqrt(dBm2W(paramMZM.P_laser)) * np.ones(sigTx_RF.size)
     sigTxo = mzm(Ai, sigTx_RF, paramMZM)

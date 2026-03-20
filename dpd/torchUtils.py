@@ -235,7 +235,7 @@ def createDatasets(sigIn, sigRef, paramTrain, paramModel):
 
 
 @njit
-def MP_filter(x, w, M, P):
+def filterMP(x, w, M, P):
     dataSize = x.size
     
     ind = np.arange(0, M + 1)    
