@@ -6,9 +6,12 @@ Funções verificação de desempenho da DPD
 """
 
 import numpy as np
-from optic.comm.metrics import calcEVM
-from scipy.constants import pi
+import torch as th
 
+from scipy.signal      import firwin
+from optic.dsp.core    import clockSamplingInterp, signal_power, pnorm
+from dpd.torchUtils    import fitFilterNN, filterMP
+from optic.dsp.coreGPU import firFilter
 
 def calcMSE(x, y):
     """
@@ -91,11 +94,6 @@ def calcACLR(Psd, freqs, B, offset):
     
     return 10*np.log10(Pout / Pin)
 
-import torch as th
-from scipy.signal import firwin
-from optic.dsp.core import clockSamplingInterp, signal_power, pnorm
-from dpd.torchUtils import fitFilterNN, MP_filter
-from optic.dsp.coreGPU        import firFilter
 
 def applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel):
     model_name = paramModel.model_name
@@ -109,7 +107,7 @@ def applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel):
                                 model, paramTrain, paramModel, batchSize = 100, predict = True).detach().cpu().numpy()
 
     else:
-        sigTx_DPD = MP_filter(sigTx, model.w.ravel(), paramModel.M, paramModel.P)
+        sigTx_DPD = filterMP(sigTx, model.w.ravel(), paramModel.M, paramModel.P)
 
     # Calc DPD gain
     gain_DPD  = 10*np.log10(signal_power(sigTx_DPD) / signal_power(sigTx))

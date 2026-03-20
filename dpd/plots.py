@@ -7,7 +7,6 @@ Funções para geração de figuras associadas à análise de resultados de DPD
 
 import numpy as np
 import matplotlib.pyplot as plt
-from optic.comm.metrics import fastBERcalc, calcEVM
 
 def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_path = None):
     fig, axs = plt.subplots(figsize = (7, 7))
@@ -78,7 +77,7 @@ def plotSpec(freq, P_sigTx, P_sigRx, label, x_lim = [-2, 2], y_lim = [-125, -80]
     axs.tick_params(axis = 'both', top = "True", right = "True", which='minor',  width=1, direction = "in")
     axs.tick_params(axis = 'both', top = "True", right = "True", which='major',  width=1.5, direction = "in")
 
-    axs.legend(framealpha = 1)
+    axs.legend(framealpha = 1, fontsize = 14)
     
     plt.grid()    
     plt.tight_layout()
