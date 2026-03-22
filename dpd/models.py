@@ -209,7 +209,7 @@ class ETDKAN(nn.Module):
             NFLOPs_min += 10*(self.M + 1) + 6*(self.M + 1) + 2*self.M
             NFLOPs_max += 10*(self.M + 1) + 6*(self.M + 1) + 2*self.M
             
-            NFLOPs = (NFLOPs_min, NFLOPs_max)
+            NFLOPs = [NFLOPs_min, NFLOPs_max]
         
         return NFLOPs
         

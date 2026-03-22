@@ -86,7 +86,7 @@ def filterMP(x, w, M, P):
     return y
 
 
-def applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel):
+def applyDPD(sigTx, model, bw, Fs, Fs_DPD, paramTrain, paramModel):
     model_name = paramModel.model_name
     
     # Signal resampling from Fs to Fs_DPD
@@ -104,7 +104,7 @@ def applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel):
     gain_DPD  = 10*np.log10(signal_power(sigTx_DPD) / signal_power(sigTx))
     
     # Signal resampling from Fs to Fs_DPD
-    h_dpd = firwin(4096, 2*Rs, fs = Fs)
+    h_dpd = firwin(4096, 2*bw, fs = Fs)
     sigTx_DPD = clockSamplingInterp(sigTx_DPD.reshape(-1, 1), Fs_DPD, Fs).ravel()
     sigTx_DPD = firFilter(h_dpd, sigTx_DPD)
     sigTx_DPD = pnorm(sigTx_DPD)

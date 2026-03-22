@@ -1,10 +1,9 @@
 
-    sampler: GridSampler 
-    ntrials: 120 
-    
-    Hyperparameters range: 
-    M: 1 - 12 
-    P: 1 - 10 
-    
-    Obs.: EVM and NFLOP as objective functions
-    
+sampler: GridSampler 
+ntrials: 110 
+
+Hyperparameters range: 
+M: 0 - 10
+P: 1 - 10
+
+Obs.: EVM, ACLR and NFLOP as objective functions
