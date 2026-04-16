@@ -6,20 +6,18 @@ Created on Thu Aug  7 13:57:53 2025
 """
 
 import numpy as np
+from scipy.signal       import welch, firwin
 
-from scipy.signal             import welch, firwin
+from optic.comm.ofdm    import demodulateOFDM
+from optic.comm.metrics import calcEVM
+from optic.dsp.core     import pnorm, finddelay, clockSamplingInterp, decimate
+from optic.dsp.coreGPU  import firFilter
+from optic.utils        import parameters
 
-from optic.comm.ofdm          import demodulateOFDM
-from optic.comm.metrics       import calcEVM
-from optic.dsp.core           import pnorm, finddelay, clockSamplingInterp, decimate
-from optic.dsp.coreGPU        import firFilter
-from optic.utils              import parameters
-
-
-from dpd.channel_models  import RoF_channel
-from dpd.train           import trainNN, trainMP
-from dpd.utils           import applyDPD
-from dpd.calc_metrics    import calcACLR
+from dpd.channel_models import RoF_channel
+from dpd.train          import trainNN, trainMP
+from dpd.utils          import applyDPD
+from dpd.calc_metrics   import calcACLR
 
 
 def get_pareto(f1, f2, n_trials):
@@ -62,19 +60,9 @@ def get_best_pareto(pareto_solutions, weights = (1, 1)):
     best = (J1[best_arg], J2[best_arg])
         
     return best, best_arg, ideal
-
-
-def getTrialParam(trial, param_list, file_path):
-    param_values = []
-    
-    for i, pp in enumerate(param_list):
-        param_values.append(np.loadtxt(file_path + f"\\{pp}.txt")[trial])
-        print(f"{pp} = {param_values[i]}")
-        
-    return param_values
     
 
-def objective_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, paramMetrics):
+def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, paramMetrics):
     # Extract data parameters
     sigIn   = data.sigIn
     sigRef  = data.sigRef
@@ -97,11 +85,11 @@ def objective_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, para
     model_name = paramModel.model_name
     
     if model_name == "ARVTDNN":
-        N1 = trial.suggest_int("N1", 5, 50)
-        N2 = trial.suggest_int("N2", 2, 50)
+        N1 = trial.suggest_int("N1", 5, 30)
+        N2 = trial.suggest_int("N2", 5, 20)
         
         paramModel.hidden_layers = [N1, N2]
-        paramModel.M = trial.suggest_int("M", 1, 9, step = 2)
+        paramModel.M = trial.suggest_int("M", 1, 5, step = 2)
         paramModel.K = trial.suggest_int("K", 1, 3)
         
         model, trainLoss, testLoss = trainNN(sigIn, sigRef, paramTrain, paramModel)
