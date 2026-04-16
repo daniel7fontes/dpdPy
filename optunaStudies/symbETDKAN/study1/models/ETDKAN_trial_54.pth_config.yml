@@ -1,0 +1,44 @@
+affine_trainable: true
+auto_save: false
+base_fun_name: silu
+ckpt_path: ./model
+device: cuda
+grid: 4
+grid_eps: 0.02
+grid_range:
+- -1
+- 1
+k: 4
+mult_arity: 2
+round: 0
+sb_trainable: true
+sp_trainable: true
+state_id: 0
+symbolic.funs_name.0:
+- - tanh
+  - tanh
+- - x^2
+  - sinh
+- - tanh
+  - sinh
+symbolic.funs_name.1:
+- - sin
+  - x^2
+  - sinh
+- - sin
+  - x^5
+  - x^2
+- - sinh
+  - x^2
+  - sin
+- - sin
+  - x^3
+  - sin
+symbolic_enabled: true
+width:
+- - 2
+  - 0
+- - 3
+  - 0
+- - 4
+  - 0

@@ -5,6 +5,7 @@ Created on Thu Aug  7 13:57:53 2025
 @author: PC
 """
 
+import optuna
 import numpy as np
 from scipy.signal       import welch, firwin
 
@@ -27,7 +28,7 @@ def get_pareto(f1, f2, n_trials):
     for i, s in enumerate(solutions):
         test = np.where( (s[0] > solutions[:,0]) * (s[1] > solutions[:,1]) )[0]
         
-        if not(len(test)):
+        if (not(len(test)) and not(np.isnan(s[0])) and not(np.isnan(s[1])) ):
             s_pareto = np.append(s, i+1)
             pareto.append(tuple(s_pareto))
 
@@ -93,14 +94,12 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
         paramModel.K = trial.suggest_int("K", 1, 3)
         
         model, trainLoss, testLoss = trainNN(sigIn, sigRef, paramTrain, paramModel)
-        model.save(model_path + f"\\{model_name}_trial_{trial.number + 1}.pth")
         
     elif model_name == "ETDNN":
         paramModel.M = trial.suggest_int("M", 1, 19, step = 2)
         paramModel.N = trial.suggest_int("N", 1, 20)
         
         model, trainLoss, testLoss = trainNN(sigIn, sigRef, paramTrain, paramModel)
-        model.save(model_path + f"\\{model_name}_trial_{trial.number + 1}.pth")
         
     elif model_name == "ETDKAN":
         paramModel.M    = trial.suggest_int("M", 1, 3, step = 2)
@@ -109,7 +108,6 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
         paramModel.grid = trial.suggest_int("grid", 2, 6)
         
         model, trainLoss, testLoss = trainNN(sigIn, sigRef, paramTrain, paramModel)        
-        model.save(model_path + f"\\{model_name}_trial_{trial.number + 1}")
     
     elif model_name == "MP":    
         paramModel.P = trial.suggest_int("P", 1, 10)
@@ -117,52 +115,68 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
         paramTrain.S = 5e-2*np.eye(paramModel.P*(paramModel.M + 1), dtype = complex)
         
         model, trainLoss = trainMP(sigIn, sigRef, paramTrain, paramModel)
-        model.save(model_path + f"\\{model_name}_trial_{trial.number + 1}.txt")
         
     else:
         print("DPD model not in the list")
-    
-    # Saving train/test losses
-    np.savetxt(model_path + f"\\{model_name}_trainLoss_trial_{trial.number + 1}.txt", trainLoss, fmt = "%f")
-    if model_name != "MP":
-        np.savetxt(model_path + f"\\{model_name}_testLoss_trial_{trial.number + 1}.txt", testLoss, fmt = "%f")
-
+        
     sigTx_DPD, gain_DPD = applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel)
     paramRoF.paramMZM.Pin_MZM = 17 + gain_DPD  # fix this
+        
+    if np.isnan(gain_DPD):
+        EVM  = np.nan
+        ACLR = np.nan
+        NFLOP = np.nan
     
-    sigRx_PA_DPD = RoF_channel(sigTx_DPD, paramRoF, filter_numtaps = 4096)
-    
-    hlp = firwin(4096, Rs/1.75, fs = Fs)
-    sigRx_DPD = firFilter(hlp, sigRx_PA_DPD)
-    
-    delay = finddelay(sigRx_DPD, sigTx)
-    sigRx_DPD = np.roll(sigRx_DPD, -delay)
-    
-    rot = np.mean(sigTx/sigRx_DPD)
-    sigRx_DPD = rot/np.abs(rot)*sigRx_DPD
-    
-    # Decimation
-    paramDec = parameters()
-    paramDec.SpS_in  = SpS
-    paramDec.SpS_out = 1
-    
-    symbRx_OFDM = decimate(sigRx_DPD, paramDec).ravel()
-    symbRx_DPD  = demodulateOFDM(symbRx_OFDM, paramOFDM)
-    
-    # EVM, ACLR calculation
-    index = np.arange(0, symbRx_DPD.size - discard)
-    EVM   = np.sqrt(calcEVM(symbRx_DPD[index], modOrder, constType)[0])*100
-    
-    # Resampling from Fs to Fs_DPD for ACLR calc
-    sigRx_PA_DPD = clockSamplingInterp(sigRx_PA_DPD.reshape(-1, 1), Fs, Fs_DPD).ravel()
-    freq, P_sigRx_PA_DPD = welch(pnorm(sigRx_PA_DPD), fs = Fs_DPD, nfft = 16*1024, return_onesided = False)
-    
-    ACLR  = calcACLR(P_sigRx_PA_DPD, freq, bw_for_aclr, offset_for_aclr)
-    NFLOP = model.calcNFLOP()
-    
-    full_metrics_array = np.array([EVM, ACLR, NFLOP]) if type(NFLOP) != list else np.concatenate( (np.array([EVM, ACLR]), np.array(NFLOP)) )
-    
-    np.savetxt(model_path + rf"\\{model_name}_metrics_{trial.number + 1}.txt", full_metrics_array, fmt = '%f')
+    else:
+        sigRx_PA_DPD = RoF_channel(sigTx_DPD, paramRoF, filter_numtaps = 4096)
+        
+        hlp = firwin(4096, Rs/1.75, fs = Fs)
+        sigRx_DPD = firFilter(hlp, sigRx_PA_DPD)
+        
+        delay = finddelay(sigRx_DPD, sigTx)
+        sigRx_DPD = np.roll(sigRx_DPD, -delay)
+        
+        rot = np.mean(sigTx/sigRx_DPD)
+        sigRx_DPD = rot/np.abs(rot)*sigRx_DPD
+        
+        # Decimation
+        paramDec = parameters()
+        paramDec.SpS_in  = SpS
+        paramDec.SpS_out = 1
+        
+        symbRx_OFDM = decimate(sigRx_DPD, paramDec).ravel()
+        symbRx_DPD  = demodulateOFDM(symbRx_OFDM, paramOFDM)
+        
+        # EVM, ACLR calculation
+        index = np.arange(0, symbRx_DPD.size - discard)
+        EVM   = np.sqrt(calcEVM(symbRx_DPD[index], modOrder, constType)[0])*100
+        
+        # Resampling from Fs to Fs_DPD for ACLR calc
+        sigRx_PA_DPD = clockSamplingInterp(sigRx_PA_DPD.reshape(-1, 1), Fs, Fs_DPD).ravel()
+        freq, P_sigRx_PA_DPD = welch(pnorm(sigRx_PA_DPD), fs = Fs_DPD, nfft = 16*1024, return_onesided = False)
+        
+        ACLR  = calcACLR(P_sigRx_PA_DPD, freq, bw_for_aclr, offset_for_aclr)
+        NFLOP = model.calcNFLOP()
+        
+        full_metrics_array = np.array([EVM, ACLR, NFLOP]) if type(NFLOP) != list else np.concatenate( (np.array([EVM, ACLR]), np.array(NFLOP)) )
+        
+        # Saving models
+        file_path = model_path + f"\\{model_name}_trial_{trial.number + 1}"
+        
+        if model_name == "MP":
+            file_path += ".txt"
+        elif model_name == "ETDNN" or "ARVTDNN":
+            file_path += ".pth"
+        
+        model.save(file_path)
+        
+        # Saving train/test losses
+        np.savetxt(model_path + f"\\{model_name}_trainLoss_trial_{trial.number + 1}.txt", trainLoss, fmt = "%f")
+        if model_name != "MP":
+            np.savetxt(model_path + f"\\{model_name}_testLoss_trial_{trial.number + 1}.txt", testLoss, fmt = "%f")
+        
+        # Saving metrics
+        np.savetxt(model_path + rf"\\{model_name}_metrics_{trial.number + 1}.txt", full_metrics_array, fmt = '%f')
 
     # Calculate only the metrics for Optuna trial output
     metrics_dic = {"EVM" : EVM, "ACLR" : ACLR, "NFLOP" : np.mean(np.array(NFLOP))}
