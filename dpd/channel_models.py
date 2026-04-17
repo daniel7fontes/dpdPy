@@ -16,6 +16,7 @@ from optic.dsp.core           import pnorm, signal_power
 from optic.dsp.coreGPU        import firFilter
 from optic.utils              import dBm2W
 
+
 def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     paramMZM     = paramRoF.paramMZM
     paramRF      = paramRoF.paramRF

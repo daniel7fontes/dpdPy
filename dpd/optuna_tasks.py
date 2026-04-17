@@ -5,7 +5,6 @@ Created on Thu Aug  7 13:57:53 2025
 @author: PC
 """
 
-import optuna
 import numpy as np
 from scipy.signal       import welch, firwin
 
