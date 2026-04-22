@@ -18,6 +18,99 @@ from optic.utils              import dBm2W
 
 
 def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
+    
+    """
+    
+    Calculates the output (after PA) signal of a ARoF system.
+    
+    Parameters
+    ----------
+    
+    sigTx : np.array
+        Input complex-valued signal
+    
+    
+    paramRoF : optic.utils.parameters object
+        Parameters for RoF channel.
+        
+        paramRoF.paramMZM : optic.utils.parameters object
+            MZM parameters
+            
+            - paramRoF.paramMZM.Vpi : float
+                - Half-wave voltage
+            - paramRoF.paramMZM.Vb : float
+                - Bias voltage
+            - paramRoF.paramMZM.P_laser : float
+                - Optical power at MZM input (dBm)
+            - paramRoF.paramMZM.Pin_MZM : float
+                - Electrical power of the RF signal at MZM input (dBm)
+        
+        paramRoF.paramRF : optic.utils.parameters object
+            RF signal parameters
+        
+            - paramRoF.paramRF.fc_e : float
+                - Frequency of the electrical carrier (Hz)
+            - paramRoF.paramRF.bw : float
+                - RF signal bandwidth
+            - paramRoF.paramRF.Fs : float
+                - Sampling frequency of the transmitted signal (Samples/s)
+         
+        paramRoF.paramFiber : optic.utils.parameters object
+            Optical fiber parameters
+        
+            - paramRoF.paramFiber.L : float
+                - Fiber length (km)
+            - paramRoF.paramFiber.alpha : float
+                - Fiber loss coefficient (dB/km)
+            - paramRoF.paramFiber.D : float
+                - Dispersion coefficient (ps/km.nm)
+            - paramRoF.paramFiber.Fc : float
+                - Optical carrier frequency (Hz)
+            - paramRoF.paramFiber.Fs : float
+                - Sampling frequency of the transmitted signal (Samples/s)
+            
+        paramRoF.paramPD : optic.utils.parameters object
+            Photodetector parameters
+        
+            - paramRoF.paramPD.ideal : bool
+                - Flag that indicates wheter the PD model is ideal (no band limitation and noise)
+            - paramRoF.paramPD.B : float
+                - PD bandwidth
+            - paramRoF.paramPD.Ipd_sat : float
+                - Saturation current
+            - paramRoF.paramPD.Fs : float
+                - Sampling frequency of the transmitted signal (Samples/s)
+            
+        paramRoF.paramPA : optic.utils.parameters object
+            Power amplifier parameters
+        
+            - paramRoF.paramPA.model_name : string
+                - Model name ("saleh", "rapp", "modified_rapp" or "limiter")
+            
+            (for Saleh model)
+            - paramRoF.paramPA.alpha_a : float
+            - paramRoF.paramPA.alpha_phi : float
+            - paramRoF.paramPA.beta_a : float
+            - paramRoF.paramPA.beta_phi : float
+            
+            (for Rapp model)
+            - paramRoF.paramPA.g : float
+            - paramRoF.paramPA.x_sat : float
+            - paramRoF.paramPA.sigma_p : float
+         
+            (for modified Rapp model)
+            - paramRoF.paramPA.g : float
+            - paramRoF.paramPA.x_sat : float
+            - paramRoF.paramPA.sigma_p : float
+            - paramRoF.paramPA.alpha : float
+            - paramRoF.paramPA.beta : float
+            - paramRoF.paramPA.q : float
+    
+    filter_numtaps : int
+        Number of taps for digital filters (default is 4096)
+    
+    """
+    
     paramMZM     = paramRoF.paramMZM
     paramRF      = paramRoF.paramRF
     paramFiber   = paramRoF.paramFiber
@@ -63,6 +156,46 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
 
 
 def power_amplifier(x, paramPA):
+    
+    """
+    Calculate the output of a specified PA model with a signal x at input
+    
+    Parameters
+    ----------
+    
+    x : np.array
+        Complex-valued signal at PA input
+    
+    paramPA : optic.utils.parameters object
+        Power amplifier parameters
+    
+        - paramPA.model_name : string
+            - Model name ("saleh", "rapp", "modified_rapp" or "limiter")
+        
+        (for Saleh model)
+        - paramPA.alpha_a : float
+        - paramPA.alpha_phi : float
+        - paramPA.beta_a : float
+        - paramPA.beta_phi : float
+        
+        (for Rapp model)
+        - paramPA.g : float
+        - paramPA.x_sat : float
+        - paramPA.sigma_p : float
+     
+        (for modified Rapp model)
+        - paramPA.g : float
+        - paramPA.x_sat : float
+        - paramPA.sigma_p : float
+        - paramPA.alpha : float
+        - paramPA.beta : float
+        - paramPA.q : float
+    
+    Returns
+    -------
+    Output of the PA model
+    
+    """
     
     model_name = paramPA.model_name
     

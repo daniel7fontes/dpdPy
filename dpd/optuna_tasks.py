@@ -63,6 +63,254 @@ def get_best_pareto(pareto_solutions, weights = (1, 1)):
     
 
 def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, paramMetrics):
+    """
+    For an Optuna trial, train and test a DPD model with the corresponding hyperparameter set of the trial 
+    
+    Parameters
+    ----------
+    
+    trial : optuna trial object
+    
+    data : optic.utils.parameters object
+        Object containing the data specification for models training
+        
+        - data.sigIn : np.array 
+            Complex signal at the input of the model
+
+        - data.sigRef : np.array
+            Complex signal for reference (at DPD sampling frequency)
+        
+        - data.sigTx : np.array
+            Complex signal for reference
+        
+        - data.Rs : float
+            Symbol rate of the transmitted signal (Symbols/s)
+        
+        - data.SpS : int
+            Samples per symbol of the transmitted signal
+        
+        - data.Fs : float
+            Sampling frequency of the transmitted signal (Samples/s)
+            
+        - data.Fs_DPD : float
+            DPD sampling frequency of the transmitted signal at (Samples/s)
+        
+        - data.modOrder : int
+            Number of constellation symbols
+        
+        - data.constType : string
+            Constellation type
+        
+    paramOFDM : optic.utils.parameters object
+        Parameters for OFDM modulation.
+
+        - param.Nfft : int
+            Size of the FFT.
+            
+        - param.G : int
+            Cyclic prefix length
+            
+        - param.hermitSymmetry : bool
+            If True, indicates real OFDM symbols; if False, indicates complex OFDM symbols
+            
+        - param.pilot : complex-valued float
+            Pilot symbol
+        
+        - param.pilotCarriers : np.array
+            Indexes of pilot subcarriers. [default: empty array].
+        
+        - param.nullCarriers : np.array
+            Indexes of null subcarriers
+            
+        - param.SpS : int
+            Samples per symbol of the transmitted signal
+    
+    
+    paramRoF : optic.utils.parameters object
+        Parameters for RoF channel.
+        
+        paramRoF.paramMZM : optic.utils.parameters object
+            MZM parameters
+            
+            - paramRoF.paramMZM.Vpi : float
+                - Half-wave voltage
+            - paramRoF.paramMZM.Vb : float
+                - Bias voltage
+            - paramRoF.paramMZM.P_laser : float
+                - Optical power at MZM input (dBm)
+            - paramRoF.paramMZM.Pin_MZM : float
+                - Electrical power of the RF signal at MZM input (dBm)
+        
+        paramRoF.paramRF : optic.utils.parameters object
+            RF signal parameters
+        
+            - paramRoF.paramRF.fc_e : float
+                - Frequency of the electrical carrier (Hz)
+            - paramRoF.paramRF.bw : float
+                - RF signal bandwidth
+            - paramRoF.paramRF.Fs : float
+                - Sampling frequency of the transmitted signal (Samples/s)
+         
+        paramRoF.paramFiber : optic.utils.parameters object
+            Optical fiber parameters
+        
+            - paramRoF.paramFiber.L : float
+                - Fiber length (km)
+            - paramRoF.paramFiber.alpha : float
+                - Fiber loss coefficient (dB/km)
+            - paramRoF.paramFiber.D : float
+                - Dispersion coefficient (ps/km.nm)
+            - paramRoF.paramFiber.Fc : float
+                - Optical carrier frequency (Hz)
+            - paramRoF.paramFiber.Fs : float
+                - Sampling frequency of the transmitted signal (Samples/s)
+            
+        paramRoF.paramPD : optic.utils.parameters object
+            Photodetector parameters
+        
+            - paramRoF.paramPD.ideal : bool
+                - Flag that indicates wheter the PD model is ideal (no band limitation and noise)
+            - paramRoF.paramPD.B : float
+                - PD bandwidth
+            - paramRoF.paramPD.Ipd_sat : float
+                - Saturation current
+            - paramRoF.paramPD.Fs : float
+                - Sampling frequency of the transmitted signal (Samples/s)
+            
+        paramRoF.paramPA : optic.utils.parameters object
+            Power amplifier parameters
+        
+            - paramRoF.paramPA.model_name : string
+                - Model name ("saleh", "rapp", "modified_rapp" or "limiter")
+            
+            (for Saleh model)
+            - paramRoF.paramPA.alpha_a : float
+            - paramRoF.paramPA.alpha_phi : float
+            - paramRoF.paramPA.beta_a : float
+            - paramRoF.paramPA.beta_phi : float
+            
+            (for Rapp model)
+            - paramRoF.paramPA.g : float
+            - paramRoF.paramPA.x_sat : float
+            - paramRoF.paramPA.sigma_p : float
+         
+            (for modified Rapp model)
+            - paramRoF.paramPA.g : float
+            - paramRoF.paramPA.x_sat : float
+            - paramRoF.paramPA.sigma_p : float
+            - paramRoF.paramPA.alpha : float
+            - paramRoF.paramPA.beta : float
+            - paramRoF.paramPA.q : float
+
+
+    paramModel : optic.utils.parameters object
+        An object containing the specification for DPD hyperparameters.
+        (for MP)
+        - paramModel.M : int 
+            Memory length of the model
+
+        - paramModel.P : int 
+            Maximum power order of the model
+        
+        (for ARVTDNN)
+        K : int 
+            Maximum power order of the model
+        
+        hidden_layers : list
+            Number of layers for each hidden layer (for ARVTDNN)
+        
+        activation : string
+            Activation function for hidden layers (for ARVTDNN: "leaky_relu", "relu", "sigmoid", "tanh", "linear")
+        
+        (for ETDNN)
+        N : int 
+            Size of the hidden layer
+            
+        (for ETDKAN)
+        k : int
+            B-spline polynomials order
+            
+        grid : int 
+            B-spline grid
+            
+        seed : int
+            Seed for ETDKAN parameters initialization
+        
+        device : string
+            Processing device name ("cpu" or "cuda")
+        
+    
+    paramTrain : optic.utils.parameters object
+        An object containing the parameters for MP training.
+        
+        (for MP)
+        - paramTrain.alg : string
+            Adaptive algorithm name ("RLS" or "LMS")
+        
+        - paramTrain.epochs : int 
+            Number of training epochs.
+
+        - paramTrain.mu : float 
+            Learning rate (for LMS).
+        
+        - paramTrain.lbd : float
+            Forgetting factor (for RLS)
+        
+        - paramTrain.S : np.array
+            Initial inverse correlation matrix for RLS algorithm
+        
+        (for NN models)
+        - paramTrain.lr : float
+            Learning rate
+        
+        - paramTrain.epochs : int 
+            Number of training epochs.
+
+        - paramTrain.adaptLearningRatio : bool 
+            Flag that indicates whether the learning rate drops by half every 100 epochs.
+        
+        - paramTrain.device : string
+            Processing device name ("cpu" or "cuda")
+        
+        - paramTrain.pgrsBar : bool
+            Flag to indicate whether a progress bar is shown
+            
+        - paramTrain.trainTestFrac : float
+            Fraction of the data used for training
+            
+        - paramTrain.batchSize
+            Size of the batches for training
+            
+        - paramTrain.shuffle
+            Flag to indicate whether to shuffle the training/test data
+        
+        - paramTrain.pgrsBar : bool
+            Flag to indicate whether a progress bar is shown.
+            
+    paramMetrics : optic.utils.parameters object
+        An object containing the parameters for MP training.
+        
+        - paramMetrics.bw_for_aclr : float
+            Bandwidth limit for ACLR calculation (Hz)
+        
+        - paramMetrics.offset_for_aclr : float
+            Frequency offset in bandwidth limit for ACLR calculation (Hz)
+        
+        - paramMetrics.discard : int
+            Number of symbols to discard for metrics calculation
+                
+        - paramMetrics.metrics : list
+            List of strings containing the metrics to be calculated as objective functions (["EVM", "ACLR", "NFLOP"])
+    
+    
+    Returns
+    -------
+    out : tuple
+        Metrics calculated for the trial
+
+    """        
+    
+    
     # Extract data parameters
     sigIn   = data.sigIn
     sigRef  = data.sigRef

@@ -1,3 +1,18 @@
+"""
+================================================================
+Classes for each DPD model (:mod:`dpd.models`)
+================================================================
+
+   MP       -- A class implementing the functionalities of the MP model.
+   ARVTDNN  -- A class implementing the functionalities of the ARVTDNN model.
+   ETDNN    -- A class implementing the functionalities of the ETDNN model.
+   ETDKAN   -- A class implementing the functionalities of the ETDKAN model.
+   
+"""
+
+"""Classes for DPD models."""
+
+
 import numpy as np
 import torch as th
 import kan   as kn

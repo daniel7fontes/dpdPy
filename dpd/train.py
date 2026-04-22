@@ -1,22 +1,19 @@
-
 """
 ================================================================
-Core digital signal processing utilities (:mod:`optic.dsp.core`)
+Model training utilities (:mod:`dpd.train`)
 ================================================================
 
-.. autosummary::
-   :toctree: generated/
-
-   slidingWindowMP    -- Calculate the average power of x.
-   slidingWindowNN    -- Calculate the average power of x.
-   augmentFeatures    -- Calculate the average power of x.
-   batchData          -- Calculate the average power of x.
-   createDatasets     -- Calculate the average power of x.
-   trainMP            -- Calculate the average power of x.
-   trainNN            -- Calculate the total average power of x.
+   slidingWindowMP  -- Create sliding window for MP input model.
+   slidingWindowNN  -- Create sliding window for NN input models.
+   augmentFeatures  -- Return augmented tensor.
+   batchData        -- Separate data into batches.
+   createDatasets   -- Create datasets for NN training.
+   trainMP          -- Train MP model.
+   trainNN          -- Train NN models.
+   
 """
 
-"""Digital signal processing utilities."""
+"""Model training utilities."""
 
 
 import numpy as np
@@ -379,7 +376,16 @@ def trainNN(sigIn, sigRef, paramTrain, paramModel):
         
         - paramTrain.pgrsBar : bool
             Flag to indicate whether a progress bar is shown
-    
+            
+        - paramTrain.trainTestFrac : float
+            Fraction of the data used for training
+            
+        - paramTrain.batchSize
+            Size of the batches for training
+            
+        - paramTrain.shuffle
+            Flag to indicate whether to shuffle the training/test data
+
     paramModel : optic.utils.parameters object
         An object containing the specification for MP hyperparameters.
         - paramModel.M : int 

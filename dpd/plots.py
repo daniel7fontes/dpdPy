@@ -1,15 +1,46 @@
-# -*- coding: utf-8 -*-
 """
-======================================================================
-Funções para geração de figuras associadas à análise de resultados de DPD
-======================================================================
+================================================================
+Utilities for spectrum and constellation plots (:mod:`dpd.plots`)
+================================================================
+
+   plotConst  -- Plot the transmitted and received symbols constellations.
+   plotSpec   -- Plot the transmitted and received signal's power spectral density (PSD).
+   
 """
+
+"""Plot utilities."""
+
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 
 def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_path = None):
+    """
+    Plot the transmitted and received symbols constellations.
+    
+    Parameters
+    ----------
+    symbTx : np.array
+        Complex-valued transmitted symbols
+    
+    symbRx : list or np.array
+        Complex-valued received symbols
+    
+    axs_lim : float
+        Max and min x/y limits. Default is 1.5
+
+    show : bool 
+        A flag that indicates whether the plot is displayed or not. Default is True
+        
+    save : bool
+        A flag that indicates whether the plot is saved or not. Default is False
+    
+    file_path : string 
+        Path where the plot will be stored. Default is None.
+    
+    """
+    
     fig, axs = plt.subplots(figsize = (7, 7))
     
     if type(symbRx) == list:
@@ -42,6 +73,40 @@ def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_pat
 
 
 def plotSpec(freq, P_sigTx, P_sigRx, label, x_lim = [-2, 2], y_lim = [-125, -80], freq_unit = "GHz", show = True, save = False, file_path = None):
+    """
+    Plot the transmitted and received signal's power spectral density (PSD).
+    
+    Parameters
+    ----------
+    freq : np.array
+        Real-valued array of frequency values.
+    
+    P_sigTx : np.array
+        PSD of the transmitted signal
+    
+    P_sigRx : list or np.array
+        PSD of the received signals
+    
+    x_lim : list
+        X-axis limits. Default is [-2, 2]
+        
+    y_lim : list
+        Y-axis limits. Default is [-125, -80]
+
+    freq_unit : string
+        Frequency unit for frequency plot ("THz", "GHz", "MHz" or "KHz"). Default is "GHz"
+
+    show : bool 
+        A flag that indicates whether the plot is displayed or not. Default is True
+        
+    save : bool
+        A flag that indicates whether the plot is saved or not. Default is False
+    
+    file_path : string 
+        Path where the plot will be stored. Default is None.
+    
+    """
+    
     if freq_unit == "THz":
         freq_norm = 1e12
     
