@@ -7,7 +7,7 @@ Model training utilities (:mod:`dpd.train`)
    slidingWindowNN  -- Create sliding window for NN input models.
    augmentFeatures  -- Return augmented tensor.
    batchData        -- Separate data into batches.
-   createDatasets   -- Create datasets for NN training.
+   createDatasets   -- Create datasets for NN models training.
    trainMP          -- Train MP model.
    trainNN          -- Train NN models.
    
@@ -71,29 +71,30 @@ def slidingWindowMP(x, i, M, P):
 
 
 class slidingWindowNN(Dataset):
-    """
-    A custom dataset class for creating sliding window samples from a signal.
-
-    Args:
-        x (numpy.ndarray): Input signal.
-        y (numpy.ndarray): Array of corresponding targets.
-        Ntaps (int): Number of taps/window size.
-        K (int): Max power of the input amplitude.
-        SpS (int, optional): Samples per symbol. Defaults to 1.
-        augment (bool, optional): Flag to indicate if the input contains augmented terms
-        
-    Attributes:
-        Ntaps (int): Number of taps/window size.
-        SpS (int): Samples per symbol.
-        x (numpy.ndarray): Input signal padded with zeros.
-        y (numpy.ndarray): Array of corresponding targets.
-
-    Methods:
-        __getitem__(self, idx): Retrieves the item at the specified index.
-        __len__(self): Returns the total number of items in the dataset.
-    """
-
     def __init__(self, x, y, Ntaps, K, SpS = 1, augment = False):
+        """
+        Initialize a custom dataset class for creating sliding window samples from a signal.
+
+        x : th.tensor 
+            Input signal.
+
+        y : int 
+            Array of corresponding targets.
+        
+        Ntaps : int
+            Number of taps/window size.
+        
+        K : int
+            Max power of the input amplitude (for ARVTDNN)
+            
+        SpS : int
+            Samples per symbol. Default is 1.
+        
+        augment : boolt
+            Flag to indicate if the input contains augmented terms. Default is False
+        
+        """
+        
         super(slidingWindowNN, self).__init__()
         self.Ntaps = Ntaps
         self.SpS = SpS
@@ -109,6 +110,11 @@ class slidingWindowNN(Dataset):
         self.augment = augment
 
     def __getitem__(self, idx):
+        """
+        Retrieves the item at the specified index.
+        
+        """
+
         center_idx = idx * self.SpS + self.Ntaps // 2
         start_idx = center_idx - self.Ntaps // 2
         end_idx = center_idx + self.Ntaps // 2
@@ -123,11 +129,14 @@ class slidingWindowNN(Dataset):
         return inputs, target
 
     def __len__(self):
+        """
+        Returns the total number of items in the dataset.
+
+        """
         return (len(self.x) - self.Ntaps) // self.SpS
 
 
 def augmentFeatures(x, K):
-    
     """
     Return a tensor with real and imaginary parts of x, and its amplitude from 1 to Kth power
 
@@ -156,21 +165,21 @@ def batchData(data_input, data_label, batchSize, shuffle = False):
     Parameters
     ----------
     data_input : th.tensor
-            Input data to neural network model
+        Input data to neural network model
     
     data_label : th.tensor
-            Reference data to neural network model
+        Reference data to neural network model
     
     batchSize : int
-            Size of the batches
+        Size of the batches
     
     shuffle : bool
-            Flag to indicate whether to shuffle the data
+        Flag to indicate whether to shuffle the data
     
     Returns
     -------
     data_dic : dictionary
-            Dictionary with the input and label data divided in batches
+        Dictionary with the input and label data divided in batches
     
     """
     
@@ -200,7 +209,45 @@ def batchData(data_input, data_label, batchSize, shuffle = False):
 
 
 def createDatasets(sigIn, sigRef, paramTrain, paramModel):
+    """
+    Create the labeled datasets divided in batches for NN DPD models training
+
+    Parameters
+    ----------
+    sigIn : np.array
+        Complex signal at the input of the model
     
+    sigRef : np.array
+        Complex signal for reference
+    
+    paramTrain : optic.utils.parameters object
+        An object containing the parameters for model training.
+        - paramTrain.trainTestFrac : float
+            Fraction of the data used for training
+            
+        - paramTrain.batchSize
+            Size of the batches for training
+            
+        - paramTrain.shuffle
+            Flag to indicate whether to shuffle the training/test data
+    
+    paramModel : optic.utils.parameters object
+        An object containing the specification for model hyperparameters.
+        - paramModel.M : int 
+            Memory length of the model
+
+        - paramModel.K : int 
+            Maximum power order of the model (for ARVTDNN)
+
+    Returns
+    -------
+    train_dataloader : dict
+        Dictionary containing the labeled data divided in batches for training
+    
+    test_dataloader : dict
+        Dictionary containing the labeled data divided in batches for test
+        
+    """    
     
     
     trainTestFrac = paramTrain.trainTestFrac
@@ -261,10 +308,10 @@ def trainMP(sigIn, sigRef, paramTrain, paramModel):
     Parameters
     ----------
     sigIn : np.array
-            Complex signal at the input of the MP model
+        Complex signal at the input of the MP model
     
     sigRef : np.array
-            Complex signal for reference
+        Complex signal for reference
     
     paramTrain : optic.utils.parameters object
         An object containing the parameters for MP training.
@@ -298,10 +345,10 @@ def trainMP(sigIn, sigRef, paramTrain, paramModel):
     Returns
     -------
     model : object
-            Object of the class MP(M, P) with optimized weights
+        Object of the class MP(M, P) with optimized weights
     
     trainLoss : np.array
-            Real-valued array with MSE by epoch of the training stage
+        Real-valued array with MSE by epoch of the training stage
 
     """    
     
@@ -347,17 +394,16 @@ def trainMP(sigIn, sigRef, paramTrain, paramModel):
 
 
 def trainNN(sigIn, sigRef, paramTrain, paramModel):
-    
     """
     Train a neural network-based model (ARVTDNN, ETDNN, ETDKAN) to find its parameters.
 
     Parameters
     ----------
     sigIn : np.array
-            Complex signal at the input of the NN model
+        Complex signal at the input of the NN model
     
     sigRef : np.array
-            Complex signal for reference
+        Complex signal for reference
     
     paramTrain : optic.utils.parameters object
         An object containing the parameters for NN training.
@@ -387,7 +433,7 @@ def trainNN(sigIn, sigRef, paramTrain, paramModel):
             Flag to indicate whether to shuffle the training/test data
 
     paramModel : optic.utils.parameters object
-        An object containing the specification for MP hyperparameters.
+        An object containing the specification for NN hyperparameters.
         - paramModel.M : int 
             Memory length of the model
 
@@ -415,13 +461,13 @@ def trainNN(sigIn, sigRef, paramTrain, paramModel):
     Returns
     -------
     model : object
-            Neural network model
+        Neural network model
     
     trainLoss : np.array
-            Real-valued array with MSE by epoch of the training stage
+        Real-valued array with MSE by epoch of the training stage
 
     testLoss : np.array
-            Real-valued array with MSE by epoch of the test stage
+        Real-valued array with MSE by epoch of the test stage
     """    
     
     adaptLearningRatio = paramTrain.adaptLearningRatio

@@ -19,6 +19,7 @@ import kan   as kn
 
 from torch import nn
 
+
 class MP:
     def __init__(self, M, P):
         """
@@ -30,6 +31,12 @@ class MP:
         P : int 
             Maximum power order of the model
             
+        References
+        ----------
+        [1] D. R. Morgan et al., "A generalized memory polynomial model for digital predistortion of RF power amplifiers", IEEE Transactions on Signal Processing, vol. 54, nº 10, p. 3852–3860, 2006, doi: 10.1109/TSP.2006.879264.
+        
+        [2] F. Ghannouchi, O. Hammi and M. Helaoiu, "Behavioral modeling and predistortion of wideband wireless transmitters", Nashville, Wiley, 2015, ISBN 9781119004424.
+        
         """
         
         self.M = M
@@ -116,8 +123,12 @@ class ARVTDNN(nn.Module):
             Number of layers for each hidden layer (for ARVTDNN)
         
         activation : string
-            Activation function for hidden layers (for ARVTDNN: "leaky_relu", "relu", "sigmoid", "tanh", "linear")
-            
+            Activation function for hidden layers (for ARVTDNN: "leaky_relu", "relu", "sigmoid", "tanh" or "linear")
+        
+        References
+        ----------
+        [1] D. Wang et al., "Augmented real-valued time-delay neural network for compensation of distortions and impairments in wireless transmitters", IEEE Transactions on Neural Networks and Learning Systems, vol. 30, nº 1, p. 242–254, 2019, doi: 10.1109/TNNLS.2018.2838039.
+
         """
         
         super(ARVTDNN, self).__init__()
@@ -146,7 +157,7 @@ class ARVTDNN(nn.Module):
         
         Parameters
         ----------
-        x : th.array
+        x : th.tensor
             Sliding window in NN format
             
         Returns
@@ -192,7 +203,7 @@ class ARVTDNN(nn.Module):
     
     def save(self, model_path):
         """
-        Save the model coefficients in a .txt file
+        Save the model coefficients in a .pth file
         
         Parameters
         ----------
@@ -205,7 +216,7 @@ class ARVTDNN(nn.Module):
         
     def load(self, model_path):
         """
-        Load a model coefficients from a .txt file
+        Load a model coefficients from a .pth file
         
         Parameters
         ----------
@@ -228,6 +239,10 @@ class ETDNN(nn.Module):
         N : int 
             Size of the hidden layer
         
+        References
+        ----------
+        [1] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841–117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
+        
         """
         
         super(ETDNN, self).__init__()
@@ -248,7 +263,7 @@ class ETDNN(nn.Module):
         
         Parameters
         ----------
-        x : th.array
+        x : th.tensor
             Sliding window in NN format
             
         Returns
@@ -293,7 +308,7 @@ class ETDNN(nn.Module):
     
     def save(self, model_path):
         """
-        Save the model coefficients in a .txt file
+        Save the model coefficients in a .pth file
         
         Parameters
         ----------
@@ -306,7 +321,7 @@ class ETDNN(nn.Module):
 
     def load(self, model_path):
         """
-        Load a model coefficients from a .txt file
+        Load a model coefficients from a .pth file
         
         Parameters
         ----------
@@ -341,6 +356,12 @@ class ETDKAN(nn.Module):
         device : string
             Processing device name ("cpu" or "cuda")
         
+        References
+        ----------
+        [1] Z. Liu et al., "KAN: Kolmogorov–Arnold Networks", The Thirteenth International Conference on Learning Representations, 2025. Available em: <https://openreview.net/forum?id=Ozo7qJ5vZi>
+        
+        [2] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841–117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
+        
         """
         
         super(ETDKAN, self).__init__()
@@ -362,7 +383,7 @@ class ETDKAN(nn.Module):
         
         Parameters
         ----------
-        x : th.array
+        x : th.tensor
             Sliding window in NN format
             
         Returns
@@ -420,7 +441,7 @@ class ETDKAN(nn.Module):
 
     def get_param(self):
         """
-        Return the model attributes (M, P, k, grid, symb)
+        Return the model attributes (M, N, k, grid, symb)
         
         """
         return (self.M, self.N, self.k, self.grid, self.symb)
@@ -479,7 +500,7 @@ class ETDKAN(nn.Module):
     
     def save(self, model_path):
         """
-        Save the model coefficients in a .txt file
+        Save the model coefficients
         
         Parameters
         ----------
@@ -492,7 +513,7 @@ class ETDKAN(nn.Module):
         
     def load(self, model_path):
         """
-        Load a model coefficients from a .txt file
+        Load a model coefficients
         
         Parameters
         ----------

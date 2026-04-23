@@ -1,34 +1,41 @@
-# -*- coding: utf-8 -*-
 """
-Created on Wed Mar 18 10:54:17 2026
+================================================================
+Channel models for simulations (:mod:`dpd.channel_models`)
+================================================================
 
-@author: PC
+   RoF_channel      -- Implementation of a RoF channel link with MZM, optical fiber, photdetector and power amplifier
+   power_amplifier  -- Calculate the output of a specified PA model with a signal x at input
+   saleh            -- Calculate the output of a specified PA model with a signal x at input
+   rapp             -- Calculate the output of a rapp PA model with a signal x at input
+   modified_rapp    -- Calculate the output of a modified_rapp PA model with a signal x at input
+   limiter          -- Calculate the output of a limiter PA model with a signal x at input
+   
 """
+
+"""Channel models for simulations."""
+
 
 import numpy as np
 
 from scipy.constants import pi
 from scipy.signal    import firwin, hilbert
 
-from optic.models.channels    import linearFiberChannel
-from optic.models.devices     import mzm, photodiode
-from optic.dsp.core           import pnorm, signal_power
-from optic.dsp.coreGPU        import firFilter
-from optic.utils              import dBm2W
+from optic.models.channels import linearFiberChannel
+from optic.models.devices  import mzm, photodiode
+from optic.dsp.core        import pnorm, signal_power
+from optic.dsp.coreGPU     import firFilter
+from optic.utils           import dBm2W
 
 
-def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
-    
+def RoF_channel(sigTx, paramRoF, gain_DPD = 0, filter_numtaps = 4096):
     """
-    
-    Calculates the output (after PA) signal of a ARoF system.
+    Calculates the output signal (after PA) of a ARoF system.
     
     Parameters
     ----------
     
     sigTx : np.array
         Input complex-valued signal
-    
     
     paramRoF : optic.utils.parameters object
         Parameters for RoF channel.
@@ -106,8 +113,16 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
             - paramRoF.paramPA.beta : float
             - paramRoF.paramPA.q : float
     
+    gain_DPD : float
+        Gain (in dB) applied at the transmitter signal by DPD model
+    
     filter_numtaps : int
-        Number of taps for digital filters (default is 4096)
+        Number of taps for digital filters implementations (default is 4096)
+    
+    Returns
+    -------
+    sigRx : np.array
+        Complex-valued array representing the output of the RoF model (after PA)        
     
     """
     
@@ -124,10 +139,12 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
     # 1 - Generating RF signal
     t = np.arange(0, len(sigTx))*1/Fs
     sigTx_RF = np.real( sigTx * np.exp(1j * 2*pi * fc_e * t) )
-    gain_pre_MZM = 10**( (paramMZM.Pin_MZM - 10*np.log10(1e3*signal_power(sigTx_RF)) )/10)
     
-    sigTx_RF = np.sqrt(gain_pre_MZM) * sigTx_RF
+    gain_pre_MZM = paramMZM.Pin_MZM - 10*np.log10(1e3*signal_power(sigTx_RF))
+    
+    sigTx_RF = np.sqrt(10**((gain_pre_MZM + gain_DPD)/10)) * sigTx_RF
     sigTx_RF = np.clip(sigTx_RF, -paramMZM.Vpi/2, paramMZM.Vpi/2)
+    
 
     # 2 - Optical modulation with MZM
     Ai     = np.sqrt(dBm2W(paramMZM.P_laser)) * np.ones(sigTx_RF.size)
@@ -156,7 +173,6 @@ def RoF_channel(sigTx, paramRoF, filter_numtaps = 4096):
 
 
 def power_amplifier(x, paramPA):
-    
     """
     Calculate the output of a specified PA model with a signal x at input
     
@@ -195,6 +211,11 @@ def power_amplifier(x, paramPA):
     -------
     Output of the PA model
     
+    
+    References
+    ----------
+    [1] F. Ghannouchi, O. Hammi and M. Helaoiu, "Behavioral modeling and predistortion of wideband wireless transmitters", Nashville, Wiley, 2015, ISBN 9781119004424.
+    
     """
     
     model_name = paramPA.model_name
@@ -208,19 +229,19 @@ def power_amplifier(x, paramPA):
         return saleh(x, alpha_a, beta_a, alpha_phi, beta_phi)
     
     elif model_name == "rapp":
-        g = paramPA.g
-        x_sat = paramPA.x_sat
+        g       = paramPA.g
+        x_sat   = paramPA.x_sat
         sigma_p = paramPA.sigma_p
         
         return rapp(x, g, x_sat, sigma_p)
     
     elif model_name == "modified_rapp":
-        g = paramPA.g
-        x_sat = paramPA.x_sat
+        g       = paramPA.g
+        x_sat   = paramPA.x_sat
         sigma_p = paramPA.sigma_p
-        alpha = paramPA.alpha
-        beta = paramPA.beta 
-        q = paramPA.q
+        alpha   = paramPA.alpha
+        beta    = paramPA.beta 
+        q       = paramPA.q
         
         return modified_rapp(x, g, x_sat, sigma_p, alpha, beta, q)
     
@@ -235,7 +256,6 @@ def power_amplifier(x, paramPA):
 
 
 def saleh(x, alpha_a = 2.1587, beta_a = 1.1517, alpha_phi = 4.033, beta_phi = 9.1040):
-    
     abs_x = np.abs(x)
     
     G   = alpha_a / ( 1 + beta_a * abs_x**2 )
@@ -244,7 +264,6 @@ def saleh(x, alpha_a = 2.1587, beta_a = 1.1517, alpha_phi = 4.033, beta_phi = 9.
     return G * np.exp(1j*Psi) * x
 
 def rapp(x, g, x_sat, sigma_p):
-    
     abs_x = np.abs(x)
     
     G = g / ( ( 1 + np.abs( abs_x / x_sat )**(2 * sigma_p) )**( 1 / (2*sigma_p) ) )
@@ -252,7 +271,6 @@ def rapp(x, g, x_sat, sigma_p):
     return G * x
     
 def modified_rapp(x, g = 16, x_sat = 1.9, sigma_p = 1.1, alpha = -345, beta = 0.17, q = 4):
-    
     abs_x = np.abs(x)
     
     G = g / ( ( 1 + np.abs( g*abs_x / x_sat )**(2 * sigma_p) )**( 1 / (2*sigma_p) ) )
@@ -272,4 +290,3 @@ def limiter(x, x_sat, y_sat):
         y[sat_points] = y_sat * np.exp(1j*np.angle(y[sat_points]))
         
     return y
-    

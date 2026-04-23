@@ -1,16 +1,22 @@
-# -*- coding: utf-8 -*-
 """
-======================================================================
-Funções verificação de desempenho da DPD
-======================================================================
+================================================================
+Utilities for DPD application (:mod:`dpd.utils`)
+================================================================
+
+   fitFilterNN  -- Apply the signal x to a NN model.
+   filterMP     -- Apply the signal x to a MP model with coefficients w.
+   applyDPD     -- Apply the signal to a DPD model processing.
+   
 """
+
+"""Utilities for DPD application."""
+
 
 import contextlib
 import numpy as np
 import torch as th
 
-from numba import njit
-
+from numba             import njit
 from scipy.signal      import firwin
 from optic.dsp.core    import clockSamplingInterp, signal_power, pnorm
 from optic.dsp.coreGPU import firFilter
@@ -18,8 +24,39 @@ from optic.dsp.coreGPU import firFilter
 from dpd.train         import augmentFeatures
 
 
-def fitFilterNN(x, model, paramTrain, paramModel, batchSize = 100, predict = True):
+def fitFilterNN(x, model, paramModel, batchSize = 100, predict = True):
+    """
+    Apply a signal x to a NN model
     
+    Parameters
+    ----------
+    x : np.array
+        Complex-valued input signal
+    
+    model : object
+        Neural network-based DPD model (ARVTDNN, ETDNN or ETDKAN)
+    
+    paramModel : optic.utils.parameters object
+        An object containing the specification for model hyperparameters.
+        - paramModel.M : int 
+            Memory length of the model
+
+        - paramModel.K : int 
+            Maximum power order of the model (for ARVTDNN)
+        
+    batchSize : int
+        Batch size for the signal division at model input (default is 100)
+    
+    predict : bool
+        Flag that indicates whether the model is in predict mode (default is True)
+        
+    Returns
+    -------
+    y : th.tensor
+        Output of the NN model
+    
+    """
+
     model_name = paramModel.model_name
     M = paramModel.M 
     
@@ -61,6 +98,30 @@ def fitFilterNN(x, model, paramTrain, paramModel, batchSize = 100, predict = Tru
 
 @njit
 def filterMP(x, w, M, P):
+    """
+    Apply the signal x to a MP model with coefficients w
+    
+    Parameters
+    ----------
+    x : np.array
+        Complex-valued input signal
+    
+    w : np.array
+        Memory Polynomial array of coefficients
+        
+    M : int 
+        Memory length of the model
+
+    P : int 
+        Maximum power order of the model
+        
+    Returns
+    -------
+    y : np.array
+        Output of the MP model
+    
+    """
+    
     dataSize = x.size
     
     ind = np.arange(0, M + 1)    
@@ -86,16 +147,76 @@ def filterMP(x, w, M, P):
     return y
 
 
-def applyDPD(sigTx, model, bw, Fs, Fs_DPD, paramTrain, paramModel):
+def applyDPD(sigTx, model, bw, Fs, Fs_DPD, paramModel):
+    """
+    Apply the signal to a DPD model processing
+    
+    Parameters
+    ----------
+    sigTx : np.array
+        Complex-valued input signal
+    
+    model : object
+        DPD model (MP, ARVTDNN, ETDNN or ETDKAN)
+    
+    bw : float
+        RF bandwidth of sigTx
+    
+    Fs : float
+        Sampling frequency of sigTx (Sa/s)
+    
+    Fs_DPD : float
+        Sampling frequency of the signal for DPD
+    
+    paramModel : optic.utils.parameters object
+        An object containing the specification for NN hyperparameters.
+        - paramModel.M : int 
+            Memory length of the model
+
+        - paramModel.P : int 
+            Maximum power order of the model (for MP)
+
+        - paramModel.K : int 
+            Maximum power order of the model (for ARVTDNN)
+        
+        - paramModel.hidden_layers : list
+            Number of layers for each hidden layer (for ARVTDNN)
+        
+        - paramModel.activation : string
+            Activation function for hidden layers (for ARVTDNN: "leaky_relu", "relu", "sigmoid", "tanh", "linear")
+        
+        - paramModel.N : int
+            Size of the hidden layer (for ETDNN and ETDKAN)
+        
+        - paramModel.k : int
+            B-spline polynomials order (for ETDKAN)
+        
+        - paramModel.grid : int
+            B-spline grid (for ETDKAN)
+        
+        - paramModel.seed : int
+            Seed for ETDKAN parameters initialization (for ETDKAN)
+    
+    Returns
+    -------
+    sigTx_DPD : np.array
+        Normalized (in power) output of the DPD model
+    
+    gain_DPD : float
+        Gain (in dB) of the DPD model
+    
+    """
+    
     model_name = paramModel.model_name
     
     # Signal resampling from Fs to Fs_DPD
     sigTx = clockSamplingInterp(sigTx.reshape(-1, 1), Fs, Fs_DPD).ravel()
     
+    # DPD application
     if model_name != "MP":
         model.eval()
-        sigTx_DPD = fitFilterNN(th.from_numpy(sigTx.copy()).to(paramTrain.device).type(th.complex64), \
-                                model, paramTrain, paramModel, batchSize = 100, predict = True).detach().cpu().numpy()
+        sigTx_DPD = fitFilterNN(th.from_numpy(sigTx.copy()).to(sigTx.device).type(th.complex64), \
+                                model, paramModel, batchSize = 100, predict = True).detach().cpu().numpy()
 
     else:
         sigTx_DPD = filterMP(sigTx, model.w.ravel(), paramModel.M, paramModel.P)
@@ -103,10 +224,12 @@ def applyDPD(sigTx, model, bw, Fs, Fs_DPD, paramTrain, paramModel):
     # Calc DPD gain
     gain_DPD  = 10*np.log10(signal_power(sigTx_DPD) / signal_power(sigTx))
     
-    # Signal resampling from Fs to Fs_DPD
-    h_dpd = firwin(4096, 2*bw, fs = Fs)
+    # Signal resampling from Fs_DPD to Fs, filtering and power normalization
     sigTx_DPD = clockSamplingInterp(sigTx_DPD.reshape(-1, 1), Fs_DPD, Fs).ravel()
+    
+    h_dpd = firwin(4096, 2*bw, fs = Fs)
     sigTx_DPD = firFilter(h_dpd, sigTx_DPD)
+    
     sigTx_DPD = pnorm(sigTx_DPD)
 
     return sigTx_DPD, gain_DPD

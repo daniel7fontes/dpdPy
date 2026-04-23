@@ -1,9 +1,15 @@
-# -*- coding: utf-8 -*-
 """
-Created on Thu Aug  7 13:57:53 2025
+================================================================
+Utilities for Optuna hyperparameter optimization of a DPD model for ARoF (:mod:`dpd.optuna_tasks`)
+================================================================
 
-@author: PC
+   get_pareto         -- Get the Pareto front solutions of a optimization with two objective functions.
+   get_best_pareto    -- Get the best solution from Pareto front by the criterion of minimum distance to the ideal solution.
+   objective_rof_dpd  -- For an Optuna trial, train and test a DPD model, with the corresponding hyperparameter set of the trial, in an ARoF link.
+   
 """
+
+"""Utilities for Optuna hyperparameter optimization of a DPD model for ARoF."""
 
 import numpy as np
 from scipy.signal       import welch, firwin
@@ -21,6 +27,30 @@ from dpd.calc_metrics   import calcACLR
 
 
 def get_pareto(f1, f2, n_trials):
+    """
+    Get the Pareto front solutions of a optimization with two objective functions    
+
+    Parameters
+    ----------
+    f1 : np.array
+        Output of the objective function f1 for each trial
+    
+    f2 : np.array
+        Output of the objective function f2 for each trial
+    
+    n_trials : int
+        Number of optization trials
+    
+    Returns
+    -------
+    pareto_solutions : np.array
+        Pairs of f1 and f2 values from the Pareto front
+        
+    pareto_trials : np.array
+        Corresponding trials of the Pareto front solutions
+    
+    """
+    
     solutions = np.hstack( (f1.reshape((n_trials, 1)), f2.reshape((n_trials, 1))) )
     pareto = []
     
@@ -41,30 +71,56 @@ def get_pareto(f1, f2, n_trials):
 
 
 def get_best_pareto(pareto_solutions, weights = (1, 1)):
-    J1 = pareto_solutions[:,1]
-    J2 = pareto_solutions[:,0]
+    """
+    Get the best solution from Pareto front by the criterion of minimum distance to the ideal solution
+    
+    Parameters
+    ----------
+    pareto_solutions : np.array
+        Pairs of f1 and f2 (objective functions) values from the Pareto front
+    
+    weights : tuple
+        Importance weight relative to each objective function for distance calculation 
+        
+    Returns
+    -------
+    best : np.array
+        Pair of f1 and f2 closer to the ideal solution point
+    
+    best_arg : int
+        Index of the pareto_solutions that contains the best solution    
+    
+    ideal : np.array
+        Ideal solution (min(f1), min(f2))
+    
+    pareto_trials : np.array
+        Corresponding trials of the Pareto front solutions
+    
+    """
+    f1 = pareto_solutions[:,1]
+    f2 = pareto_solutions[:,0]
     w1, w2 = weights
     
-    num_sol = J1.size
+    num_sol = f1.size
 
-    gamma_1 = 1/(w1*np.abs(np.max(J1)))
-    gamma_2 = 1/(w2*np.abs(np.max(J2)))
+    gamma_1 = 1/(w1*np.abs(np.max(f1)))
+    gamma_2 = 1/(w2*np.abs(np.max(f2)))
     
-    ideal = np.array([np.min(J1), np.min(J2)])
+    ideal = np.array([np.min(f1), np.min(f2)])
     
     distance_pareto = np.zeros(num_sol)
     for i in range(num_sol):
-        distance_pareto[i] = np.sqrt( (gamma_1*(J1[i] - ideal[0]))**2 + (gamma_2*(J2[i] - ideal[1]))**2 )
+        distance_pareto[i] = np.sqrt( (gamma_1*(f1[i] - ideal[0]))**2 + (gamma_2*(f2[i] - ideal[1]))**2 )
 
     best_arg = np.argmin(distance_pareto)
-    best = (J1[best_arg], J2[best_arg])
+    best = (f1[best_arg], f2[best_arg])
         
     return best, best_arg, ideal
     
 
 def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, paramMetrics):
     """
-    For an Optuna trial, train and test a DPD model with the corresponding hyperparameter set of the trial 
+    For an Optuna trial, train and test a DPD model, with the corresponding hyperparameter set of the trial, in an ARoF link
     
     Parameters
     ----------
@@ -72,10 +128,10 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
     trial : optuna trial object
     
     data : optic.utils.parameters object
-        Object containing the data specification for models training
+        Object containing the data specifications for models training
         
         - data.sigIn : np.array 
-            Complex signal at the input of the model
+            Complex signal at the input of the model (at DPD sampling frequency)
 
         - data.sigRef : np.array
             Complex signal for reference (at DPD sampling frequency)
@@ -308,7 +364,7 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
     out : tuple
         Metrics calculated for the trial
 
-    """        
+    """
     
     
     # Extract data parameters
@@ -366,8 +422,7 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
     else:
         print("DPD model not in the list")
         
-    sigTx_DPD, gain_DPD = applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramTrain, paramModel)
-    paramRoF.paramMZM.Pin_MZM = 17 + gain_DPD  # fix this
+    sigTx_DPD, gain_DPD = applyDPD(sigTx, model, Rs, Fs, Fs_DPD, paramModel)
         
     if np.isnan(gain_DPD):
         EVM  = np.nan
@@ -375,7 +430,7 @@ def objective_rof_dpd(trial, data, paramOFDM, paramRoF, paramModel, paramTrain, 
         NFLOP = np.nan
     
     else:
-        sigRx_PA_DPD = RoF_channel(sigTx_DPD, paramRoF, filter_numtaps = 4096)
+        sigRx_PA_DPD = RoF_channel(sigTx_DPD, paramRoF, gain_DPD, filter_numtaps = 4096)
         
         hlp = firwin(4096, Rs/1.75, fs = Fs)
         sigRx_DPD = firFilter(hlp, sigRx_PA_DPD)

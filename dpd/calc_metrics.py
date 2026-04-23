@@ -1,22 +1,67 @@
-# -*- coding: utf-8 -*-
 """
-Created on Fri Mar 20 14:17:40 2026
+================================================================
+Functions for metrics calculation (:mod:`dpd.calc_metrics`)
+================================================================
 
-@author: PC
+   calcPAPR  -- Calculate the PAPR of a signal.
+   calcACLR  -- Calculate the ACLR of a signal.
+   calcMSE   -- Calculate the MSE between two signals.
+   
 """
+
+"""Utilities for PAPR, ACLR and MSE calculation."""
+
 
 import numpy as np
 
-def calcPAPR(signal):
-    peak_power = np.max(np.abs(signal)) ** 2
-    average_power = np.mean(np.abs(signal) ** 2)
+
+def calcPAPR(x):
+    """
+    Calculate the Peak-to-Average Power Ratio (PAPR), in dB, of a signal x
+
+    Parameters
+    ----------
+    x : np.array
+        Input signal
     
-    papr = peak_power / average_power
+    Returns
+    -------
+    PAPR : float
+        Peak-to-Average Power Ratio of x (in dB)
+        
+    """
+    peak_power    = np.max(np.abs(x)) ** 2
+    average_power = np.mean(np.abs(x) ** 2)
     
-    return 10 * np.log10(papr)
+    PAPR = 10 * np.log10(peak_power / average_power)
+    
+    return PAPR
 
 
 def calcACLR(Psd, freqs, B, offset):
+    """
+    Calculate the Adjacent Channel Leakage Ratio (ACLR) of a signal with given power spectral density (Psd)
+
+    Parameters
+    ----------
+    Psd : np.array
+       Power spectral density of the signal 
+    
+    freqs : np.array
+       Frequency points corresponding to the PSD values 
+    
+    B : float
+        Frequency limit of the in-band signal frequency range
+    
+    offset : 
+        Frequency offset for the in-band signal frequency range limit
+        
+    Returns
+    -------
+    ACLR : float
+        Adjacent channel leakage ratio of the signal with power spectral density Psd
+        
+    """
     df = freqs[1] - freqs[0]
     
     Pin = np.sum(Psd[freqs >= - B] * df) - np.sum(Psd[freqs >= B] * df)
@@ -26,8 +71,30 @@ def calcACLR(Psd, freqs, B, offset):
     
     Pout = np.max([Pout1, Pout2])
     
-    return 10*np.log10(Pout / Pin)
+    ACLR = 10*np.log10(Pout / Pin)
+    
+    return ACLR
 
 
-def calcMSE(x, y):    
-    return np.mean(np.abs(x - y)**2)
+def calcMSE(x, y):
+    """
+    Calculate Mean Squared Error (MSE) between x and y
+
+    Parameters
+    ----------
+    x : np.array
+       First signal for MSE calc 
+    
+    y : np.array
+       Second signal for MSE calc
+           
+    Returns
+    -------
+    MSE : float
+        Mean Squared Error (MSE) between x and y
+        
+    """
+    
+    MSE = np.mean(np.abs(x - y)**2)
+    
+    return MSE

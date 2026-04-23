@@ -30,7 +30,7 @@ def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_pat
     axs_lim : float
         Max and min x/y limits. Default is 1.5
 
-    show : bool 
+    show : bool
         A flag that indicates whether the plot is displayed or not. Default is True
         
     save : bool
@@ -58,13 +58,14 @@ def plotConst(symbTx, symbRx, axs_lim = 1.5, show = True, save = False, file_pat
     
     axs.set_xlim(-axs_lim, axs_lim)
     axs.set_ylim(-axs_lim, axs_lim)
+    
     axs.minorticks_on()
     axs.tick_params(axis = 'both', top = "True", right = "True", which='minor',  width=1, direction = "in")
     axs.tick_params(axis = 'both', top = "True", right = "True", which='major',  width=1.5, direction = "in")
 
     plt.grid()
-    
     plt.tight_layout()
+    
     if save:
         plt.savefig(file_path)
     
@@ -79,7 +80,7 @@ def plotSpec(freq, P_sigTx, P_sigRx, label, x_lim = [-2, 2], y_lim = [-125, -80]
     Parameters
     ----------
     freq : np.array
-        Real-valued array of frequency values.
+        Frequency points corresponding to the PSD values
     
     P_sigTx : np.array
         PSD of the transmitted signal
@@ -131,7 +132,6 @@ def plotSpec(freq, P_sigTx, P_sigRx, label, x_lim = [-2, 2], y_lim = [-125, -80]
 
     else:
         axs.plot(freq/freq_norm, 10*np.log10(P_sigRx), lw = 2, label = label)
-    
     
     axs.set_xlim(x_lim[0], x_lim[1])
     axs.set_ylim(y_lim[0], y_lim[1])
