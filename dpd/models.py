@@ -33,7 +33,7 @@ class MP:
             
         References
         ----------
-        [1] D. R. Morgan et al., "A generalized memory polynomial model for digital predistortion of RF power amplifiers", IEEE Transactions on Signal Processing, vol. 54, nº 10, p. 3852–3860, 2006, doi: 10.1109/TSP.2006.879264.
+        [1] D. R. Morgan et al., "A generalized memory polynomial model for digital predistortion of RF power amplifiers", IEEE Transactions on Signal Processing, vol. 54, n. 10, p. 3852-3860, 2006, doi: 10.1109/TSP.2006.879264.
         
         [2] F. Ghannouchi, O. Hammi and M. Helaoiu, "Behavioral modeling and predistortion of wideband wireless transmitters", Nashville, Wiley, 2015, ISBN 9781119004424.
         
@@ -127,7 +127,7 @@ class ARVTDNN(nn.Module):
         
         References
         ----------
-        [1] D. Wang et al., "Augmented real-valued time-delay neural network for compensation of distortions and impairments in wireless transmitters", IEEE Transactions on Neural Networks and Learning Systems, vol. 30, nº 1, p. 242–254, 2019, doi: 10.1109/TNNLS.2018.2838039.
+        [1] D. Wang et al., "Augmented real-valued time-delay neural network for compensation of distortions and impairments in wireless transmitters", IEEE Transactions on Neural Networks and Learning Systems, vol. 30, n. 1, p. 242-254, 2019, doi: 10.1109/TNNLS.2018.2838039.
 
         """
         
@@ -241,7 +241,7 @@ class ETDNN(nn.Module):
         
         References
         ----------
-        [1] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841–117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
+        [1] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841-117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
         
         """
         
@@ -360,7 +360,7 @@ class ETDKAN(nn.Module):
         ----------
         [1] Z. Liu et al., "KAN: Kolmogorov–Arnold Networks", The Thirteenth International Conference on Learning Representations, 2025. Available em: <https://openreview.net/forum?id=Ozo7qJ5vZi>
         
-        [2] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841–117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
+        [2] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841-117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
         
         """
         
