@@ -358,7 +358,7 @@ class ETDKAN(nn.Module):
         
         References
         ----------
-        [1] Z. Liu et al., "KAN: Kolmogorov–Arnold Networks", The Thirteenth International Conference on Learning Representations, 2025. Available em: <https://openreview.net/forum?id=Ozo7qJ5vZi>
+        [1] Z. Liu et al., "KAN: Kolmogorov-Arnold Networks", The Thirteenth International Conference on Learning Representations, 2025, doi: https://doi.org/10.48550/arXiv.2404.19756
         
         [2] M. Tanio, N. Ishii and N. Kamiya, "Efficient digital predistortion using sparse neural network", IEEE Access, vol. 8, p. 117841-117852, 2020, doi: 10.1109/ACCESS.2020.3005146.
         
