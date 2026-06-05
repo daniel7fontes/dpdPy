@@ -34,3 +34,5 @@ Through its integration with **Optuna**, dpdPy enables automated hyperparameter 
 By bringing together modeling, simulation, evaluation, and optimization capabilities within a single environment, dpdPy provides researchers and telecommunications engineers with a complete platform for the design, analysis, testing, and optimization of Digital Predistortion systems. This comprehensive toolset enables the exploration of different DPD architectures and operating conditions, supporting both academic research and practical system development.
 
 For a detailed description of the models and their implementations, see the master's thesis "Comparative Analysis of Digital Predistortion Algorithms Based on Neural Networks and Memory Polynomials for Radio-over-Fiber Links" (https://dspace.sti.ufcg.edu.br/handle/riufcg/46713), completed as part of the requirements for the Master of Science degree in Electrical Engineering at the Federal University of Campina Grande (UFCG).
+
+<img class="center" src="https://github.com/daniel7fontes/dpdPy/blob/main/dpd/capa_repo.png" width="800">
