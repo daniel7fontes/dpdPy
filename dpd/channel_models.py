@@ -144,7 +144,6 @@ def RoF_channel(sigTx, paramRoF, gain_DPD = 0, filter_numtaps = 4096):
     
     sigTx_RF = np.sqrt(10**((gain_pre_MZM + gain_DPD)/10)) * sigTx_RF
     sigTx_RF = np.clip(sigTx_RF, -paramMZM.Vpi/2, paramMZM.Vpi/2)
-    
 
     # 2 - Optical modulation with MZM
     Ai     = np.sqrt(dBm2W(paramMZM.P_laser)) * np.ones(sigTx_RF.size)

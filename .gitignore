@@ -1,0 +1,15 @@
+*.pyc
+*.swp
+*.png
+*.pdf
+
+/.ipynb_checkpoints
+/examples/.ipynb_checkpoints
+/optunaStudies/.ipynb_checkpoints
+/optunaStudies/ARVTDNN/.ipynb_checkpoints
+/optunaStudies/ETDNN/.ipynb_checkpoints
+/optunaStudies/MP/.ipynb_checkpoints
+/optunaStudies/ETDKAN/.ipynb_checkpoints
+/optunaStudies/symbETDKAN/.ipynb_checkpoints
+/dpd/.ipynb_checkpoints
+/dpd/__pycache__
